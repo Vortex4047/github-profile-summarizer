@@ -1,0 +1,13 @@
+{
+  "name": "github-journey-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Frontend-only GitHub portfolio dashboard",
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "check": "node --check app.js"
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  }
+}
