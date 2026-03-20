@@ -11,11 +11,12 @@ import { ActivityLab } from './components/ActivityLab';
 import { DeveloperCompare } from './components/DeveloperCompare';
 import { FunDock } from './components/FunDock';
 import { CommandPalette, type CommandItem } from './components/CommandPalette';
+import { ProfileStats } from './components/ProfileStats';
 import { fetchGitHubDashboardData, type GitHubDashboardData } from './github';
 
-type ThemeVariant = 'cyber' | 'holo' | 'quantum';
+type ThemeVariant = 'cyber' | 'holo' | 'quantum' | 'ember' | 'matrix' | 'aurora';
 
-const THEMES: ThemeVariant[] = ['cyber', 'holo', 'quantum'];
+const THEMES: ThemeVariant[] = ['cyber', 'holo', 'quantum', 'ember', 'matrix', 'aurora'];
 const DEFAULT_USERNAME = 'Vortex4047';
 const PROFILE_SURPRISE_POOL = [
   'torvalds',
@@ -298,6 +299,9 @@ export default function App() {
       { id: 'cmd-theme-cyber', label: 'Switch Theme: Cyber', run: () => setThemeVariant('cyber') },
       { id: 'cmd-theme-holo', label: 'Switch Theme: Hologram', run: () => setThemeVariant('holo') },
       { id: 'cmd-theme-quantum', label: 'Switch Theme: Quantum', run: () => setThemeVariant('quantum') },
+      { id: 'cmd-theme-ember', label: 'Switch Theme: Ember', run: () => setThemeVariant('ember') },
+      { id: 'cmd-theme-matrix', label: 'Switch Theme: Matrix', run: () => setThemeVariant('matrix') },
+      { id: 'cmd-theme-aurora', label: 'Switch Theme: Aurora', run: () => setThemeVariant('aurora') },
       {
         id: 'cmd-reset-search',
         label: 'Clear Filters & Search',
@@ -377,7 +381,7 @@ export default function App() {
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="hero-title">Developer Persona</h1>
           <div className="theme-switcher" role="radiogroup" aria-label="Theme Variant">
-            {(THEMES.map((theme) => ({ id: theme, label: theme === 'holo' ? 'Hologram' : theme === 'quantum' ? 'Quantum' : 'Cyber' })) as Array<{
+            {(THEMES.map((theme) => ({ id: theme, label: theme === 'holo' ? 'Hologram' : theme === 'quantum' ? 'Quantum' : theme === 'ember' ? 'Ember' : theme === 'matrix' ? 'Matrix' : theme === 'aurora' ? 'Aurora' : 'Cyber' })) as Array<{
               id: ThemeVariant;
               label: string;
             }>).map((item) => (
@@ -451,6 +455,15 @@ export default function App() {
             <ActivityLab events={dashboard?.events ?? []} repos={filteredRepos} loading={loading} />
           </ScrollReveal>
         )}
+
+        <ScrollReveal delay={48} className="mt-6">
+          <ProfileStats
+            user={dashboard?.user ?? null}
+            repos={dashboard?.repos ?? []}
+            events={dashboard?.events ?? []}
+            loading={loading}
+          />
+        </ScrollReveal>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
           <div className="space-y-6">

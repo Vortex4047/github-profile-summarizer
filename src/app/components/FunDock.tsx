@@ -1,6 +1,6 @@
 import { Focus, Gamepad2, Keyboard, Shuffle, Sparkles, WandSparkles } from 'lucide-react';
 
-type ThemeVariant = 'cyber' | 'holo' | 'quantum';
+type ThemeVariant = 'cyber' | 'holo' | 'quantum' | 'ember' | 'matrix' | 'aurora';
 
 interface FunDockProps {
   currentUsername: string | null;
@@ -20,6 +20,9 @@ const themeLabel: Record<ThemeVariant, string> = {
   cyber: 'Cyber',
   holo: 'Hologram',
   quantum: 'Quantum',
+  ember: 'Ember',
+  matrix: 'Matrix',
+  aurora: 'Aurora',
 };
 
 export function FunDock({

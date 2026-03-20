@@ -1,7 +1,9 @@
-import { Loader2, Search } from 'lucide-react';
+import { useState } from 'react';
+import { Loader2, Search, KeyRound, Check } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { getGitHubToken, setGitHubToken } from '../github';
 import type { GitHubUser } from '../github';
 
 interface HeaderProps {
@@ -58,6 +60,17 @@ export function Header({
   ];
 
   const displayName = user?.name || 'GitHub Developer';
+
+  const [showTokenInput, setShowTokenInput] = useState(false);
+  const [tokenInput, setTokenInput] = useState(() => getGitHubToken());
+  const [tokenSaved, setTokenSaved] = useState(false);
+
+  const handleSaveToken = () => {
+    setGitHubToken(tokenInput);
+    setTokenSaved(true);
+    setTimeout(() => setTokenSaved(false), 2000);
+  };
+
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
     onLoadProfile();
@@ -149,7 +162,49 @@ export function Header({
               className="pl-10 bg-[#0f1629]/60 border-white/10 focus:border-cyan-500/50 text-white placeholder:text-gray-500"
             />
           </div>
-          {error && <p className="text-sm text-rose-300">{error}</p>}
+          {error && (
+            <p className="text-sm text-rose-300">
+              {error}
+              {error.includes('rate limit') && !getGitHubToken() && (
+                <button
+                  type="button"
+                  className="ml-2 underline text-cyan-300 hover:text-cyan-200"
+                  onClick={() => setShowTokenInput(true)}
+                >
+                  Add a GitHub token to fix this →
+                </button>
+              )}
+            </p>
+          )}
+          {showTokenInput && (
+            <div className="flex gap-2 items-center">
+              <KeyRound className="w-4 h-4 text-yellow-400 shrink-0" />
+              <Input
+                type="password"
+                placeholder="ghp_xxxx (GitHub personal access token)"
+                value={tokenInput}
+                onChange={(e) => setTokenInput(e.target.value)}
+                className="bg-[#0f1629]/60 border-white/10 focus:border-yellow-500/50 text-white placeholder:text-gray-500 text-xs"
+              />
+              <Button
+                type="button"
+                onClick={handleSaveToken}
+                className="bg-yellow-600 hover:bg-yellow-700 text-white text-xs px-3 min-w-[60px]"
+              >
+                {tokenSaved ? <Check className="w-3.5 h-3.5" /> : 'Save'}
+              </Button>
+            </div>
+          )}
+          {!showTokenInput && (
+            <button
+              type="button"
+              className="text-[11px] text-slate-400 hover:text-cyan-300 flex items-center gap-1 transition-colors"
+              onClick={() => setShowTokenInput(true)}
+            >
+              <KeyRound className="w-3 h-3" />
+              {getGitHubToken() ? 'Token configured ✓' : 'Add GitHub token for higher rate limits'}
+            </button>
+          )}
         </form>
       </div>
     </div>

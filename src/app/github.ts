@@ -4,8 +4,10 @@ export interface GitHubUser {
   avatar_url: string;
   bio: string | null;
   followers: number;
+  following: number;
   public_repos: number;
   html_url: string;
+  created_at: string;
 }
 
 export interface GitHubRepo {
@@ -16,6 +18,8 @@ export interface GitHubRepo {
   fork: boolean;
   stargazers_count: number;
   forks_count: number;
+  watchers_count: number;
+  size: number;
   language: string | null;
   updated_at: string;
   html_url: string;
@@ -53,13 +57,34 @@ export interface GitHubDashboardData {
   events: GitHubEvent[];
 }
 
+const TOKEN_KEY = 'gh-dashboard-token';
+
+export function getGitHubToken(): string {
+  if (typeof window === 'undefined') return '';
+  return localStorage.getItem(TOKEN_KEY) || '';
+}
+
+export function setGitHubToken(token: string) {
+  if (typeof window === 'undefined') return;
+  if (token) {
+    localStorage.setItem(TOKEN_KEY, token.trim());
+  } else {
+    localStorage.removeItem(TOKEN_KEY);
+  }
+}
+
 async function fetchGitHubJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-  });
+  const headers: Record<string, string> = {
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+
+  const token = getGitHubToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(url, { headers });
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {

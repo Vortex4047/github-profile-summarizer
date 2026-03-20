@@ -42,10 +42,10 @@ interface Projection {
 const GRID_DAYS = 7;
 const TILE_WIDTH = 18;
 const TILE_HEIGHT = 10;
-const MIN_TOWER_HEIGHT = 2;
-const MAX_TOWER_HEIGHT = 84;
+const MIN_TOWER_HEIGHT = 4;
+const MAX_TOWER_HEIGHT = 90;
 const VIEWBOX_WIDTH = 720;
-const VIEWBOX_HEIGHT = 360;
+const VIEWBOX_HEIGHT = 380;
 
 const dateFmt = new Intl.DateTimeFormat(undefined, {
   month: 'short',
@@ -53,12 +53,13 @@ const dateFmt = new Intl.DateTimeFormat(undefined, {
   year: 'numeric',
 });
 
+// City color palette - more vibrant and realistic
 const intensityPalette = [
-  { top: '#213f66', left: '#142b47', right: '#1b365a', glow: 'rgba(74, 188, 255, 0.16)' },
-  { top: '#2d5fa0', left: '#1e4679', right: '#265690', glow: 'rgba(74, 188, 255, 0.3)' },
-  { top: '#30b7d3', left: '#1d869e', right: '#28a2be', glow: 'rgba(36, 218, 255, 0.4)' },
-  { top: '#6470f0', left: '#4b56ca', right: '#5b67e1', glow: 'rgba(116, 116, 255, 0.45)' },
-  { top: '#a25dff', left: '#8243df', right: '#9450f0', glow: 'rgba(183, 89, 255, 0.52)' },
+  { top: '#1a2a44', left: '#0f1a2e', right: '#152340', glow: 'rgba(74, 188, 255, 0.1)', windows: 'rgba(100, 160, 220, 0.15)' },
+  { top: '#1e4a7a', left: '#153560', right: '#1a4070', glow: 'rgba(74, 188, 255, 0.25)', windows: 'rgba(140, 200, 255, 0.3)' },
+  { top: '#2892d0', left: '#1d6ea0', right: '#2380b8', glow: 'rgba(36, 218, 255, 0.35)', windows: 'rgba(180, 230, 255, 0.5)' },
+  { top: '#5b68e8', left: '#4450c2', right: '#505cd5', glow: 'rgba(116, 116, 255, 0.4)', windows: 'rgba(200, 200, 255, 0.55)' },
+  { top: '#a050f0', left: '#7b3cc8', right: '#8e46dc', glow: 'rgba(183, 89, 255, 0.5)', windows: 'rgba(220, 180, 255, 0.65)' },
 ];
 
 function toDateKey(date: Date) {
@@ -147,7 +148,7 @@ function getIntensity(score: number, maxScore: number) {
 function getTowerHeight(score: number, maxScore: number) {
   const intensity = getIntensity(score, maxScore);
   if (score === 0) return MIN_TOWER_HEIGHT;
-  return Math.max(10, Math.round(MIN_TOWER_HEIGHT + intensity * MAX_TOWER_HEIGHT));
+  return Math.max(12, Math.round(MIN_TOWER_HEIGHT + intensity * MAX_TOWER_HEIGHT));
 }
 
 function pickPalette(intensity: number) {
@@ -223,6 +224,26 @@ function getProjection(towers: TowerCell[], gridWeeks: number): Projection {
     floorPoints,
     baselineY,
   };
+}
+
+// Generate window positions for building faces
+function generateWindows(height: number, faceWidth: number): Array<{ x: number; y: number }> {
+  if (height < 20) return [];
+  const windows: Array<{ x: number; y: number }> = [];
+  const rows = Math.max(1, Math.floor((height - 8) / 10));
+  const cols = Math.max(1, Math.floor(faceWidth / 5));
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      // Randomly skip some windows to look realistic
+      if (Math.random() > 0.65) {
+        windows.push({
+          x: (c + 0.5) / cols,
+          y: (r + 0.5) / rows,
+        });
+      }
+    }
+  }
+  return windows;
 }
 
 export function ContributionHeatmap({ events, loading, days, mode, eventFilter }: ContributionHeatmapProps) {
@@ -317,6 +338,9 @@ export function ContributionHeatmap({ events, loading, days, mode, eventFilter }
       ? `${formatMetricValue(topCell.score)} ${unit} on ${dateFmt.format(new Date(topCell.date))}`
       : `No ${unit} found in this window.`;
 
+  // Seed-based pseudo-random for consistent window patterns
+  const windowSeed = useMemo(() => Math.random(), [data]);
+
   const createPillar = (cell: TowerCell) => {
     const floorTop: [number, number] = [cell.x, cell.y - TILE_HEIGHT / 2];
     const floorRight: [number, number] = [cell.x + TILE_WIDTH / 2, cell.y];
@@ -332,14 +356,84 @@ export function ContributionHeatmap({ events, loading, days, mode, eventFilter }
     const leftFace = pointsToString([topLeft, topBottom, floorBottom, floorLeft]);
     const rightFace = pointsToString([topRight, topBottom, floorBottom, floorRight]);
     const floorFace = pointsToString([floorTop, floorRight, floorBottom, floorLeft]);
-    const topRidge: [number, number] = [(topTop[0] + topRight[0]) / 2, (topTop[1] + topRight[1]) / 2];
-    const topCore: [number, number] = [(topTop[0] + topBottom[0]) / 2, (topTop[1] + topBottom[1]) / 2];
 
     const palette = pickPalette(cell.intensity);
     const isActive = hoveredKey === cell.key;
-    const glow = isActive ? `drop-shadow(0 0 10px ${palette.glow})` : 'none';
-    const opacity = cell.score === 0 ? 0.62 : 0.98;
+    const glow = isActive ? `drop-shadow(0 0 12px ${palette.glow})` : 'none';
+    const opacity = cell.score === 0 ? 0.55 : 1;
     const animationDelay = `${((cell.week + cell.day) % 16) * 34}ms`;
+
+    // Generate windows on the left face
+    const leftWindows: JSX.Element[] = [];
+    const rightWindows: JSX.Element[] = [];
+
+    if (cell.height > 18 && cell.score > 0) {
+      const numRows = Math.max(1, Math.floor((cell.height - 6) / 12));
+      const numCols = 2;
+
+      // Left face windows
+      for (let r = 0; r < numRows; r++) {
+        for (let c = 0; c < numCols; c++) {
+          const litSeed = ((cell.week * 7 + cell.day) * 13 + r * 5 + c * 3) % 10;
+          if (litSeed < 4) continue; // skip some windows
+
+          const tFace = (r + 0.3) / numRows;
+          const sFace = (c + 0.3) / numCols;
+          const wFaceWidth = 0.4 / numCols;
+          const wFaceHeight = 0.35 / numRows;
+
+          // Interpolate on the left face quadrilateral
+          const lx = topLeft[0] + (topBottom[0] - topLeft[0]) * sFace + (floorLeft[0] - topLeft[0]) * tFace;
+          const ly = topLeft[1] + (topBottom[1] - topLeft[1]) * sFace + (floorLeft[1] - topLeft[1]) * tFace;
+
+          const lit = litSeed > 6;
+          leftWindows.push(
+            <rect
+              key={`lw-${r}-${c}`}
+              x={lx - 1}
+              y={ly - 1}
+              width={2.5 * wFaceWidth * TILE_WIDTH}
+              height={2 * wFaceHeight * cell.height}
+              fill={lit ? palette.windows : 'rgba(0,0,0,0.2)'}
+              opacity={lit ? (isActive ? 0.9 : 0.7) : 0.3}
+              rx="0.3"
+            />
+          );
+        }
+      }
+
+      // Right face windows
+      for (let r = 0; r < numRows; r++) {
+        for (let c = 0; c < numCols; c++) {
+          const litSeed = ((cell.week * 7 + cell.day) * 11 + r * 7 + c * 2) % 10;
+          if (litSeed < 4) continue;
+
+          const tFace = (r + 0.3) / numRows;
+          const sFace = (c + 0.3) / numCols;
+
+          const rx = topRight[0] + (topBottom[0] - topRight[0]) * (1 - sFace) + (floorRight[0] - topRight[0]) * tFace;
+          const ry = topRight[1] + (topBottom[1] - topRight[1]) * (1 - sFace) + (floorRight[1] - topRight[1]) * tFace;
+
+          const lit = litSeed > 5;
+          rightWindows.push(
+            <rect
+              key={`rw-${r}-${c}`}
+              x={rx - 1.2}
+              y={ry - 1}
+              width={2.2}
+              height={1.8}
+              fill={lit ? palette.windows : 'rgba(0,0,0,0.15)'}
+              opacity={lit ? (isActive ? 0.9 : 0.65) : 0.25}
+              rx="0.2"
+            />
+          );
+        }
+      }
+    }
+
+    // Antenna for tallest buildings
+    const showAntenna = cell.score === maxScore && cell.height > 60;
+    const antennaTop: [number, number] = [(topTop[0] + topBottom[0]) / 2, topTop[1] - 14];
 
     return (
       <g
@@ -362,47 +456,115 @@ export function ContributionHeatmap({ events, loading, days, mode, eventFilter }
         onFocus={() => setHoveredKey(cell.key)}
         onBlur={() => setHoveredKey(null)}
       >
+        {/* Floor shadow */}
         <polygon points={floorFace} className="city-pillar__floor" />
+
+        {/* Building body */}
         <polygon points={leftFace} fill={palette.left} opacity={opacity} className="city-pillar__left" style={{ filter: glow }} />
         <polygon points={rightFace} fill={palette.right} opacity={opacity} className="city-pillar__right" style={{ filter: glow }} />
         <polygon points={topFace} fill={palette.top} opacity={1} className="city-pillar__top" style={{ filter: glow }} />
+
+        {/* Windows */}
+        {leftWindows}
+        {rightWindows}
+
+        {/* Top edge highlight */}
         <polyline
-          points={pointsToString([topLeft, topCore, topRight])}
+          points={pointsToString([topLeft, topTop, topRight])}
           fill="none"
-          stroke="rgba(255,255,255,0.35)"
-          strokeWidth="0.65"
+          stroke="rgba(255,255,255,0.4)"
+          strokeWidth="0.5"
           strokeLinecap="round"
           className="city-pillar__edge"
         />
-        <circle cx={topRidge[0]} cy={topRidge[1]} r="0.8" fill="rgba(255,255,255,0.5)" />
+        <polyline
+          points={pointsToString([topLeft, topBottom, topRight])}
+          fill="none"
+          stroke="rgba(255,255,255,0.15)"
+          strokeWidth="0.35"
+          strokeLinecap="round"
+        />
+
+        {/* Rooftop light */}
+        <circle
+          cx={(topTop[0] + topBottom[0]) / 2}
+          cy={(topTop[1] + topBottom[1]) / 2}
+          r={cell.score > 0 ? 1 : 0.5}
+          fill={cell.score > 0 ? palette.windows : 'rgba(255,255,255,0.2)'}
+          opacity={isActive ? 1 : 0.7}
+        />
+
+        {/* Antenna on tallest buildings */}
+        {showAntenna && (
+          <>
+            <line
+              x1={(topTop[0] + topBottom[0]) / 2}
+              y1={topTop[1]}
+              x2={antennaTop[0]}
+              y2={antennaTop[1]}
+              stroke="rgba(200,220,255,0.6)"
+              strokeWidth="0.6"
+            />
+            <circle cx={antennaTop[0]} cy={antennaTop[1]} r="1.2" fill="#ef4444" opacity="0.9">
+              <animate attributeName="opacity" values="0.9;0.3;0.9" dur="1.5s" repeatCount="indefinite" />
+            </circle>
+          </>
+        )}
+
+        {/* Ground glow / street light effect */}
+        {cell.score > 0 && (
+          <ellipse
+            cx={cell.x}
+            cy={cell.y + TILE_HEIGHT / 2 + 1}
+            rx={TILE_WIDTH / 3}
+            ry={TILE_HEIGHT / 4}
+            fill={palette.glow}
+            opacity={isActive ? 0.6 : 0.25}
+          />
+        )}
       </g>
     );
   };
 
+  // Generate stars for the sky
+  const stars = useMemo(() => {
+    const result: Array<{ cx: number; cy: number; r: number; opacity: number }> = [];
+    for (let i = 0; i < 40; i++) {
+      result.push({
+        cx: (i * 197 + 31) % VIEWBOX_WIDTH,
+        cy: (i * 127 + 17) % (VIEWBOX_HEIGHT * 0.4),
+        r: ((i * 13) % 3) * 0.3 + 0.4,
+        opacity: ((i * 23) % 5) * 0.12 + 0.2,
+      });
+    }
+    return result;
+  }, []);
+
   return (
     <div className="space-y-4">
-      <h3 className="text-xl">Interactive Contribution Heatmap</h3>
+      <h3 className="text-xl">Contribution City</h3>
       <div className="neo-panel p-6">
         <div className="flex items-center justify-between gap-3 mb-5">
-          <h4 className="text-sm uppercase tracking-[0.18em] text-cyan-200/85">Contribution Activity</h4>
+          <h4 className="text-sm uppercase tracking-[0.18em] text-cyan-200/85">Contribution Skyline</h4>
           <p className="text-xs text-slate-300">{panelCaption}</p>
         </div>
 
         <div ref={rootRef} className="city-heatmap-wrap">
           <svg
             viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
-            className="h-[300px] w-full md:h-[340px]"
+            className="h-[300px] w-full md:h-[360px]"
             preserveAspectRatio="xMidYMid meet"
           >
             <defs>
               <radialGradient id="cityAura" cx="50%" cy="76%" r="70%">
-                <stop offset="0%" stopColor="rgba(56,189,248,0.28)" />
-                <stop offset="58%" stopColor="rgba(56,189,248,0.08)" />
+                <stop offset="0%" stopColor="rgba(56,189,248,0.22)" />
+                <stop offset="58%" stopColor="rgba(56,189,248,0.06)" />
                 <stop offset="100%" stopColor="rgba(2,6,23,0)" />
               </radialGradient>
               <linearGradient id="citySkyline" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="rgba(167,139,250,0.22)" />
-                <stop offset="48%" stopColor="rgba(56,189,248,0.08)" />
+                <stop offset="0%" stopColor="rgba(10,15,30,0.95)" />
+                <stop offset="25%" stopColor="rgba(15,25,50,0.85)" />
+                <stop offset="55%" stopColor="rgba(20,35,65,0.65)" />
                 <stop offset="100%" stopColor="rgba(2,6,23,0)" />
               </linearGradient>
               <linearGradient id="cityFloor" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -410,27 +572,60 @@ export function ContributionHeatmap({ events, loading, days, mode, eventFilter }
                 <stop offset="100%" stopColor="#101f37" stopOpacity="0.72" />
               </linearGradient>
               <pattern id="cityFloorGrid" width="12" height="12" patternUnits="userSpaceOnUse">
-                <path d="M 12 0 L 0 0 0 12" fill="none" stroke="rgba(125,211,252,0.14)" strokeWidth="0.7" />
+                <path d="M 12 0 L 0 0 0 12" fill="none" stroke="rgba(125,211,252,0.12)" strokeWidth="0.5" />
               </pattern>
+              <radialGradient id="cityFloorGlow" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="rgba(56,189,248,0.15)" />
+                <stop offset="100%" stopColor="rgba(2,6,23,0)" />
+              </radialGradient>
             </defs>
 
-            <rect x="0" y="0" width={VIEWBOX_WIDTH} height={VIEWBOX_HEIGHT} fill="url(#citySkyline)" opacity="0.85" />
+            {/* Night sky */}
+            <rect x="0" y="0" width={VIEWBOX_WIDTH} height={VIEWBOX_HEIGHT} fill="url(#citySkyline)" opacity="0.95" />
+
+            {/* Stars */}
+            {stars.map((star, i) => (
+              <circle key={`star-${i}`} cx={star.cx} cy={star.cy} r={star.r} fill="white" opacity={star.opacity}>
+                {i % 5 === 0 && (
+                  <animate attributeName="opacity" values={`${star.opacity};${star.opacity * 0.3};${star.opacity}`} dur={`${2 + (i % 3)}s`} repeatCount="indefinite" />
+                )}
+              </circle>
+            ))}
+
+            {/* Moon */}
+            <circle cx={VIEWBOX_WIDTH - 60} cy={40} r="12" fill="rgba(255,255,240,0.08)" />
+            <circle cx={VIEWBOX_WIDTH - 58} cy={38} r="10" fill="rgba(255,255,240,0.12)" />
+            <circle cx={VIEWBOX_WIDTH - 56} cy={36} r="6" fill="rgba(255,255,250,0.06)" />
 
             <g transform={`translate(${projection.offsetX} ${projection.offsetY}) scale(${projection.scale})`}>
+              {/* Floor aura */}
               <ellipse cx="0" cy={projection.baselineY - 6} rx={190} ry={26} fill="url(#cityAura)" opacity="0.85" />
 
+              {/* Floor platform */}
               <polygon points={pointsToString(projection.floorPoints)} fill="url(#cityFloor)" opacity="0.65" />
-              <polygon points={pointsToString(projection.floorPoints)} fill="url(#cityFloorGrid)" opacity="0.85" />
+              <polygon points={pointsToString(projection.floorPoints)} fill="url(#cityFloorGrid)" opacity="0.7" />
 
+              {/* Floor glow */}
+              <ellipse
+                cx={(projection.floorPoints[0][0] + projection.floorPoints[2][0]) / 2}
+                cy={(projection.floorPoints[0][1] + projection.floorPoints[2][1]) / 2}
+                rx={80}
+                ry={20}
+                fill="url(#cityFloorGlow)"
+                opacity="0.5"
+              />
+
+              {/* Buildings */}
               {towerData.map(createPillar)}
 
+              {/* Base line */}
               <line
                 x1={projection.floorPoints[3][0] - 8}
                 y1={projection.baselineY}
                 x2={projection.floorPoints[1][0] + 8}
                 y2={projection.baselineY}
-                stroke="rgba(74,188,255,0.7)"
-                strokeWidth="1.5"
+                stroke="rgba(74,188,255,0.5)"
+                strokeWidth="1.2"
               />
             </g>
           </svg>
