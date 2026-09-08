@@ -1,4 +1,4 @@
-import { Loader2, Swords } from 'lucide-react';
+import { Loader2, ArrowRightLeft } from 'lucide-react';
 import type { GitHubDashboardData } from '../github';
 
 interface DeveloperCompareProps {
@@ -36,12 +36,16 @@ function MetricRow({ label, left, right }: { label: string; left: number; right:
   const lead = diff === 0 ? 'tie' : diff > 0 ? 'left' : 'right';
 
   return (
-    <div className="compare-metric-row">
-      <span>{label}</span>
-      <div className="compare-metric-row__values">
-        <strong className={lead === 'left' ? 'text-cyan-300' : ''}>{left.toLocaleString()}</strong>
-        <span className="compare-metric-row__vs">vs</span>
-        <strong className={lead === 'right' ? 'text-purple-300' : ''}>{right.toLocaleString()}</strong>
+    <div className="flex items-center justify-between py-2.5 px-3 rounded-md hover:bg-white/[0.02] border-b border-white/[0.04] text-xs">
+      <span className="text-slate-400 font-medium">{label}</span>
+      <div className="flex items-center gap-4 font-mono">
+        <span className={lead === 'left' ? 'text-emerald-400 font-semibold' : 'text-slate-300'}>
+          {left.toLocaleString()}
+        </span>
+        <span className="text-slate-600 text-[10px]">vs</span>
+        <span className={lead === 'right' ? 'text-emerald-400 font-semibold' : 'text-slate-300'}>
+          {right.toLocaleString()}
+        </span>
       </div>
     </div>
   );
@@ -60,46 +64,66 @@ export function DeveloperCompare({
   const right = summarize(compare);
 
   return (
-    <section className="neo-panel p-6 space-y-4">
+    <section className="neo-panel p-5 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-xl inline-flex items-center gap-2">
-          <Swords className="w-5 h-5 text-cyan-300" />
-          Developer Duel
-        </h3>
-        <div className="compare-form">
+        <div className="flex items-center gap-2">
+          <ArrowRightLeft className="w-4 h-4 text-slate-400" />
+          <h3 className="text-lg font-semibold text-white tracking-tight">Developer Comparison</h3>
+        </div>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            onLoadCompare();
+          }}
+          className="flex items-center gap-2"
+        >
           <input
             type="text"
             value={compareInput}
             onChange={(event) => onCompareInputChange(event.target.value)}
-            placeholder="Compare username"
-            className="compare-form__input"
+            placeholder="e.g. torvalds"
+            className="bg-slate-950/60 border border-white/10 rounded-md px-3 py-1 text-xs text-white placeholder:text-slate-500 font-mono w-40 focus:outline-none focus:border-emerald-500/50"
           />
-          <button type="button" onClick={onLoadCompare} className="compare-form__btn" disabled={compareLoading}>
-            {compareLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Compare'}
+          <button
+            type="submit"
+            disabled={compareLoading}
+            className="px-3 py-1 bg-white/[0.06] hover:bg-white/[0.1] text-white border border-white/10 rounded-md text-xs font-medium transition-colors"
+          >
+            {compareLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Compare'}
           </button>
+        </form>
+      </div>
+
+      {compareError && (
+        <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 p-2 rounded-md">
+          {compareError}
+        </p>
+      )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="p-3.5 rounded-lg bg-slate-950/40 border border-white/[0.06]">
+          <span className="text-[10px] font-mono text-slate-500 uppercase">Primary Developer</span>
+          <h4 className="text-sm font-semibold text-white truncate mt-0.5">
+            {primary?.user.name || primary?.user.login || 'Not loaded'}
+          </h4>
+          <p className="text-xs text-slate-400 font-mono">@{primary?.user.login || '-'}</p>
+        </div>
+
+        <div className="p-3.5 rounded-lg bg-slate-950/40 border border-white/[0.06]">
+          <span className="text-[10px] font-mono text-slate-500 uppercase">Benchmark Developer</span>
+          <h4 className="text-sm font-semibold text-white truncate mt-0.5">
+            {compare?.user.name || compare?.user.login || 'Enter user above'}
+          </h4>
+          <p className="text-xs text-slate-400 font-mono">@{compare?.user.login || '-'}</p>
         </div>
       </div>
 
-      {compareError && <p className="text-sm text-rose-300">{compareError}</p>}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <article className="compare-card">
-          <p className="compare-card__label">Primary</p>
-          <h4>{primary?.user.name || primary?.user.login || 'Not loaded'}</h4>
-          <p className="compare-card__meta">@{primary?.user.login || '-'}</p>
-        </article>
-        <article className="compare-card compare-card--right">
-          <p className="compare-card__label">Compared</p>
-          <h4>{compare?.user.name || compare?.user.login || 'Not loaded'}</h4>
-          <p className="compare-card__meta">@{compare?.user.login || '-'}</p>
-        </article>
-      </div>
-
-      <div className="compare-grid">
+      <div className="divide-y divide-white/[0.04]">
         <MetricRow label="Public Repositories" left={left.repos} right={right.repos} />
         <MetricRow label="Followers" left={left.followers} right={right.followers} />
         <MetricRow label="Total Stars" left={left.stars} right={right.stars} />
-        <MetricRow label="Total Forks" left={left.forks} right={right.forks} />
+        <MetricRow label="Total Community Forks" left={left.forks} right={right.forks} />
         <MetricRow label="Recent Push Events" left={left.pushes} right={right.pushes} />
       </div>
     </section>

@@ -46,13 +46,13 @@ interface StatItemProps {
 
 function StatItem({ icon, label, value }: StatItemProps) {
   return (
-    <div className="neo-panel p-4 flex items-center gap-3 hover:border-cyan-400/40 transition-all cursor-default">
-      <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-cyan-950/50 border border-cyan-500/20 text-cyan-300 shrink-0">
+    <div className="neo-panel p-3.5 flex items-center gap-3">
+      <div className="w-8 h-8 rounded-md flex items-center justify-center bg-white/[0.04] border border-white/[0.08] text-slate-300 shrink-0">
         {icon}
       </div>
       <div className="min-w-0">
-        <div className="text-[11px] uppercase tracking-[0.1em] text-slate-400">{label}</div>
-        <div className="text-lg text-white truncate">{value}</div>
+        <div className="text-[11px] font-medium text-slate-400 truncate">{label}</div>
+        <div className="text-base font-semibold font-mono text-white truncate">{value}</div>
       </div>
     </div>
   );

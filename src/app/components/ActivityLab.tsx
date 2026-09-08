@@ -55,65 +55,59 @@ export function ActivityLab({ events, repos, loading }: ActivityLabProps) {
   }, [events, repos]);
 
   return (
-    <section className="neo-panel p-6 space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-xl">Signal Lab</h3>
-        <p className="text-xs text-slate-300">Behavior and rhythm analytics</p>
+    <section className="neo-panel p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-white tracking-tight">Activity Analytics</h3>
+        <span className="text-xs text-slate-400 font-mono">Cadence & rhythm</span>
       </div>
 
-      {loading && <p className="text-sm text-slate-400">Loading signal analytics...</p>}
+      {loading && <p className="text-xs text-slate-500">Loading analytics...</p>}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <article className="signal-tile lg:col-span-2">
-          <h4 className="signal-tile__title">Event Type Distribution</h4>
-          <div className="h-48">
+        <article className="p-4 rounded-lg bg-slate-950/40 border border-white/[0.05] lg:col-span-2">
+          <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Event Type Distribution</h4>
+          <div className="h-44">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={eventMix} margin={{ left: 0, right: 0, top: 8, bottom: 0 }}>
-                <XAxis dataKey="type" tick={{ fill: '#a5b4fc', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: '#93c5fd', fontSize: 11 }} axisLine={false} tickLine={false} width={26} />
+                <XAxis dataKey="type" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} width={26} />
                 <Tooltip
-                  cursor={{ fill: 'rgba(15,23,42,0.45)' }}
-                  contentStyle={{ background: 'rgba(6, 20, 38, 0.95)', border: '1px solid rgba(34,211,238,0.5)', borderRadius: 8 }}
+                  cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+                  contentStyle={{ background: '#090d16', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, fontSize: 12 }}
                 />
-                <Bar dataKey="value" radius={[6, 6, 0, 0]} fill="url(#signalBarGradient)" />
-                <defs>
-                  <linearGradient id="signalBarGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#22d3ee" />
-                    <stop offset="100%" stopColor="#6366f1" />
-                  </linearGradient>
-                </defs>
+                <Bar dataKey="value" radius={[4, 4, 0, 0]} fill="#10b981" />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </article>
 
-        <article className="signal-tile">
-          <h4 className="signal-tile__title">Engineering Rhythm</h4>
-          <div className="h-48">
+        <article className="p-4 rounded-lg bg-slate-950/40 border border-white/[0.05]">
+          <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Engineering Rhythm</h4>
+          <div className="h-44">
             <ResponsiveContainer width="100%" height="100%">
               <RadarChart data={rhythm}>
-                <PolarGrid stroke="rgba(148,163,184,0.3)" />
-                <PolarAngleAxis dataKey="subject" tick={{ fill: '#a5b4fc', fontSize: 11 }} />
+                <PolarGrid stroke="rgba(255,255,255,0.08)" />
+                <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 11 }} />
                 <PolarRadiusAxis tick={false} domain={[0, 100]} />
-                <Radar dataKey="value" stroke="#22d3ee" fill="#22d3ee" fillOpacity={0.26} strokeWidth={2} />
+                <Radar dataKey="value" stroke="#38bdf8" fill="#38bdf8" fillOpacity={0.18} strokeWidth={1.5} />
               </RadarChart>
             </ResponsiveContainer>
           </div>
         </article>
       </div>
 
-      <article className="signal-tile">
-        <h4 className="signal-tile__title">Weekday Commit Intensity</h4>
-        <div className="h-36">
+      <article className="p-4 rounded-lg bg-slate-950/40 border border-white/[0.05]">
+        <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Weekday Commit Frequency</h4>
+        <div className="h-32">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={weekdayHeat} margin={{ left: 0, right: 0, top: 4, bottom: 0 }}>
-              <XAxis dataKey="day" tick={{ fill: '#a5b4fc', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: '#93c5fd', fontSize: 11 }} axisLine={false} tickLine={false} width={26} />
+              <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} width={26} />
               <Tooltip
-                cursor={{ fill: 'rgba(15,23,42,0.45)' }}
-                contentStyle={{ background: 'rgba(6, 20, 38, 0.95)', border: '1px solid rgba(56,189,248,0.45)', borderRadius: 8 }}
+                cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+                contentStyle={{ background: '#090d16', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, fontSize: 12 }}
               />
-              <Bar dataKey="value" radius={[6, 6, 0, 0]} fill="#60a5fa" />
+              <Bar dataKey="value" radius={[4, 4, 0, 0]} fill="#38bdf8" />
             </BarChart>
           </ResponsiveContainer>
         </div>

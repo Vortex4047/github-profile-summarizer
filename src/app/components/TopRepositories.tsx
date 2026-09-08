@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Star, GitFork, ArrowUpRight, ChevronLeft, ChevronRight } from 'lucide-react';
-import { LineChart, Line, ResponsiveContainer } from 'recharts';
+import { Star, GitFork, ArrowUpRight, ChevronLeft, ChevronRight, Bookmark } from 'lucide-react';
 import type { GitHubRepo } from '../github';
 
 interface TopRepositoriesProps {
@@ -11,21 +10,35 @@ interface TopRepositoriesProps {
   onToggleFavorite: (repoId: number) => void;
 }
 
-const PAGE_SIZE = 4;
+const PAGE_SIZE = 6;
 
-function buildTrend(repo: GitHubRepo) {
-  const stars = Math.max(1, repo.stargazers_count);
-  const forks = Math.max(1, repo.forks_count);
+const GITHUB_LANG_COLORS: Record<string, string> = {
+  TypeScript: '#3178c6',
+  JavaScript: '#f1e05a',
+  Python: '#3572A5',
+  Rust: '#dea584',
+  Go: '#00ADD8',
+  'C++': '#f34b7d',
+  C: '#555555',
+  'C#': '#178600',
+  Java: '#b07219',
+  HTML: '#e34c26',
+  CSS: '#563d7c',
+  Ruby: '#701516',
+  PHP: '#4F5D95',
+  Shell: '#89e051',
+  Swift: '#F05138',
+  Kotlin: '#A97BFF',
+  Dart: '#00B4AB',
+};
 
-  return Array.from({ length: 7 }, (_, index) => {
-    const factor = 0.55 + index * 0.08;
-    return {
-      value: Math.max(1, Math.round(stars * factor + forks * 0.5)),
-    };
-  });
-}
-
-export function TopRepositories({ repos, loading, query, favoriteRepoIds, onToggleFavorite }: TopRepositoriesProps) {
+export function TopRepositories({
+  repos,
+  loading,
+  query,
+  favoriteRepoIds,
+  onToggleFavorite,
+}: TopRepositoriesProps) {
   const [page, setPage] = useState(1);
   const favoriteSet = useMemo(() => new Set(favoriteRepoIds), [favoriteRepoIds]);
 
@@ -44,121 +57,127 @@ export function TopRepositories({ repos, loading, query, favoriteRepoIds, onTogg
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-xl">Top Repositories</h3>
-        <div className="text-right">
-          <p className="text-xs text-slate-300">Page {safePage} / {totalPages}</p>
-          <p className="text-[11px] text-amber-200">Favorites: {favoriteRepoIds.length}</p>
+        <h3 className="text-lg font-semibold text-white tracking-tight">Repositories</h3>
+        <div className="flex items-center gap-2 text-xs text-slate-400 font-mono">
+          <span>{repos.length} total</span>
+          {favoriteRepoIds.length > 0 && (
+            <span className="text-amber-400 font-medium">({favoriteRepoIds.length} pinned)</span>
+          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
         {loading && visibleRepos.length === 0 && (
-          <div className="col-span-full text-sm text-gray-400 neo-panel p-6">
-            Loading repositories...
+          <div className="col-span-full text-xs text-slate-400 neo-panel p-8 text-center">
+            Fetching repositories...
           </div>
         )}
 
         {!loading && visibleRepos.length === 0 && (
-          <div className="col-span-full text-sm text-gray-400 neo-panel p-6">
-            No repositories matched {query ? `"${query}"` : 'this search'}.
+          <div className="col-span-full text-xs text-slate-400 neo-panel p-8 text-center">
+            No repositories found {query ? `matching "${query}"` : ''}.
           </div>
         )}
 
         {visibleRepos.map((repo) => {
           const isFavorite = favoriteSet.has(repo.id);
+          const langColor = (repo.language && GITHUB_LANG_COLORS[repo.language]) || '#94a3b8';
 
           return (
-            <a
+            <div
               key={repo.id}
-              href={repo.html_url}
-              target="_blank"
-              rel="noreferrer"
-              className={`neo-panel p-6 hover:border-cyan-400/45 transition-all cursor-pointer group ${isFavorite ? 'repo-card--favorite' : ''}`}
+              className={`neo-panel p-4 flex flex-col justify-between transition-colors group relative ${
+                isFavorite ? 'border-amber-500/30 bg-amber-500/[0.02]' : ''
+              }`}
             >
-              <div className="flex items-start justify-between gap-3 mb-2">
-                <h4 className="text-lg text-cyan-300 group-hover:text-cyan-200 transition-colors truncate">
-                  {repo.name}
-                </h4>
-                <div className="flex items-center gap-2">
+              <div>
+                <div className="flex items-start justify-between gap-2 mb-1.5">
+                  <a
+                    href={repo.html_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-white hover:text-emerald-400 transition-colors inline-flex items-center gap-1.5 group/link truncate text-sm"
+                  >
+                    <span className="truncate">{repo.name}</span>
+                    <ArrowUpRight className="w-3.5 h-3.5 opacity-40 group-hover/link:opacity-100 transition-opacity shrink-0" />
+                  </a>
+
                   <button
                     type="button"
-                    className={`repo-fav-btn ${isFavorite ? 'repo-fav-btn--active' : ''}`}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      onToggleFavorite(repo.id);
-                    }}
-                    aria-label={isFavorite ? 'Remove favorite' : 'Add favorite'}
-                    title={isFavorite ? 'Remove favorite' : 'Add favorite'}
+                    onClick={() => onToggleFavorite(repo.id)}
+                    className={`p-1 rounded hover:bg-white/[0.06] transition-colors shrink-0 ${
+                      isFavorite ? 'text-amber-400' : 'text-slate-500 hover:text-slate-300'
+                    }`}
+                    title={isFavorite ? 'Unpin repository' : 'Pin to top'}
                   >
-                    <Star className="w-3.5 h-3.5" />
+                    <Bookmark className="w-3.5 h-3.5" fill={isFavorite ? 'currentColor' : 'none'} />
                   </button>
-                  <ArrowUpRight className="w-4 h-4 text-gray-400 group-hover:text-cyan-300" />
                 </div>
+
+                <p className="text-xs text-slate-400 mb-3 line-clamp-2 min-h-[32px] leading-relaxed">
+                  {repo.description || 'No description provided.'}
+                </p>
               </div>
 
-              <p className="text-sm text-gray-400 mb-4 line-clamp-2 min-h-[40px]">
-                {repo.description || 'No description provided.'}
-              </p>
+              <div className="flex items-center gap-3 pt-2 border-t border-white/[0.04] text-xs text-slate-400 flex-wrap">
+                {repo.language && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <span
+                      className="w-2.5 h-2.5 rounded-full inline-block shrink-0"
+                      style={{ backgroundColor: langColor }}
+                    />
+                    <span className="text-slate-300">{repo.language}</span>
+                  </span>
+                )}
 
-              <div className="flex items-center gap-3 mb-4 flex-wrap">
-                <span className="inline-flex items-center justify-center rounded-md text-xs px-2 py-1 bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
-                  {repo.language || 'Unknown'}
-                </span>
                 {repo.fork && (
-                  <span className="inline-flex items-center justify-center rounded-md text-xs px-2 py-1 bg-violet-500/20 text-violet-300 border border-violet-500/40">
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-white/[0.04] border border-white/[0.06] text-slate-400">
                     Fork
                   </span>
                 )}
-                <div className="flex items-center gap-1 text-sm text-gray-400 ml-auto">
-                  <Star className="w-4 h-4" />
+
+                <div className="flex items-center gap-1 ml-auto font-mono text-[11px]">
+                  <Star className="w-3 h-3 text-slate-400" />
                   <span>{repo.stargazers_count.toLocaleString()}</span>
                 </div>
-                <div className="flex items-center gap-1 text-sm text-gray-400">
-                  <GitFork className="w-4 h-4" />
+
+                <div className="flex items-center gap-1 font-mono text-[11px]">
+                  <GitFork className="w-3 h-3 text-slate-400" />
                   <span>{repo.forks_count.toLocaleString()}</span>
                 </div>
               </div>
-
-              <div className="h-12">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={buildTrend(repo)}>
-                    <Line
-                      type="monotone"
-                      dataKey="value"
-                      stroke={isFavorite ? '#f59e0b' : '#22d3ee'}
-                      strokeWidth={2}
-                      dot={false}
-                      className="transition-all group-hover:drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </a>
+            </div>
           );
         })}
       </div>
 
-      <div className="flex items-center justify-end gap-2">
-        <button
-          type="button"
-          className="repo-page-btn"
-          disabled={safePage <= 1}
-          onClick={() => setPage((current) => Math.max(1, current - 1))}
-        >
-          <ChevronLeft className="w-4 h-4" />
-          Prev
-        </button>
-        <button
-          type="button"
-          className="repo-page-btn"
-          disabled={safePage >= totalPages}
-          onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-        >
-          Next
-          <ChevronRight className="w-4 h-4" />
-        </button>
-      </div>
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between pt-1">
+          <span className="text-xs text-slate-500 font-mono">
+            Page {safePage} of {totalPages}
+          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              className="control-pill"
+              disabled={safePage <= 1}
+              onClick={() => setPage((c) => Math.max(1, c - 1))}
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+              Previous
+            </button>
+            <button
+              type="button"
+              className="control-pill"
+              disabled={safePage >= totalPages}
+              onClick={() => setPage((c) => Math.min(totalPages, c + 1))}
+            >
+              Next
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,670 +1,778 @@
-import { useMemo, useRef, useState, type CSSProperties } from 'react';
-import type { GitHubEvent } from '../github';
+import { useMemo, useState, useEffect } from 'react';
+import type { GitHubEvent, ContributionCalendarData } from '../github';
 import type { HeatmapMode } from './DashboardControls';
+import { Box, Play, RefreshCw, Layers, ExternalLink, Calendar, Grid3X3, Sparkles } from 'lucide-react';
 
 interface ContributionHeatmapProps {
   events: GitHubEvent[];
+  calendar?: ContributionCalendarData;
   loading: boolean;
   days: number;
   mode: HeatmapMode;
   eventFilter: string;
+  username?: string;
 }
 
-interface HeatmapCell {
-  week: number;
-  day: number;
-  date: string;
-  score: number;
+interface DayData {
+  date: Date;
+  dateStr: string;
+  weekIndex: number;
+  dayOfWeek: number; // 0=Sun, 6=Sat
+  count: number;
+  level: number;
 }
 
-interface TowerCell extends HeatmapCell {
-  key: string;
-  x: number;
-  y: number;
-  height: number;
-  intensity: number;
-}
-
-interface TooltipState {
-  x: number;
-  y: number;
-  cell: TowerCell;
-}
-
-interface Projection {
-  scale: number;
-  offsetX: number;
-  offsetY: number;
-  floorPoints: Array<[number, number]>;
-  baselineY: number;
-}
-
-const GRID_DAYS = 7;
-const TILE_WIDTH = 18;
-const TILE_HEIGHT = 10;
-const MIN_TOWER_HEIGHT = 4;
-const MAX_TOWER_HEIGHT = 90;
-const VIEWBOX_WIDTH = 720;
-const VIEWBOX_HEIGHT = 380;
-
-const dateFmt = new Intl.DateTimeFormat(undefined, {
-  month: 'short',
-  day: 'numeric',
-  year: 'numeric',
-});
-
-// City color palette - more vibrant and realistic
-const intensityPalette = [
-  { top: '#1a2a44', left: '#0f1a2e', right: '#152340', glow: 'rgba(74, 188, 255, 0.1)', windows: 'rgba(100, 160, 220, 0.15)' },
-  { top: '#1e4a7a', left: '#153560', right: '#1a4070', glow: 'rgba(74, 188, 255, 0.25)', windows: 'rgba(140, 200, 255, 0.3)' },
-  { top: '#2892d0', left: '#1d6ea0', right: '#2380b8', glow: 'rgba(36, 218, 255, 0.35)', windows: 'rgba(180, 230, 255, 0.5)' },
-  { top: '#5b68e8', left: '#4450c2', right: '#505cd5', glow: 'rgba(116, 116, 255, 0.4)', windows: 'rgba(200, 200, 255, 0.55)' },
-  { top: '#a050f0', left: '#7b3cc8', right: '#8e46dc', glow: 'rgba(183, 89, 255, 0.5)', windows: 'rgba(220, 180, 255, 0.65)' },
+// Exact colors from yoshi389111/github-profile-3d-contrib NightGreenSettings.json
+const NIGHT_GREEN_COLORS = [
+  // Level 0: no contrib
+  { top: 'rgb(68, 68, 68)', left: 'rgb(57, 57, 57)', right: 'rgb(48, 48, 48)' },
+  // Level 1
+  { top: 'rgb(27, 125, 40)', left: 'rgb(23, 105, 33)', right: 'rgb(19, 88, 28)' },
+  // Level 2
+  { top: 'rgb(36, 167, 54)', left: 'rgb(30, 140, 45)', right: 'rgb(25, 117, 38)' },
+  // Level 3
+  { top: 'rgb(45, 209, 67)', left: 'rgb(38, 175, 56)', right: 'rgb(31, 146, 47)' },
+  // Level 4
+  { top: 'rgb(87, 218, 105)', left: 'rgb(73, 183, 88)', right: 'rgb(61, 153, 74)' },
 ];
 
-function toDateKey(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+// Official GitHub 2D calendar dark-mode colors
+const GITHUB_2D_COLORS = [
+  '#161b22', // Level 0
+  '#0e4429', // Level 1
+  '#006d32', // Level 2
+  '#26a641', // Level 3
+  '#39d353', // Level 4
+];
+
+function getContribLevel(count: number): number {
+  if (count <= 0) return 0;
+  if (count <= 3) return 1;
+  if (count <= 9) return 2;
+  if (count <= 19) return 3;
+  return 4;
 }
 
-function eventWeight(event: GitHubEvent, mode: HeatmapMode) {
-  if (mode === 'commits') {
-    return event.type === 'PushEvent' ? Math.max(1, event.commitCount) : 0;
-  }
-
-  if (mode === 'activity') {
-    return 1;
-  }
-
-  if (event.type === 'PushEvent') return Math.max(1, event.commitCount);
-  if (event.type === 'PullRequestEvent') return event.prMerged ? 4 : 3;
-  if (event.type === 'PullRequestReviewEvent') return 2;
-  if (event.type === 'IssuesEvent') return 2;
-  if (event.type === 'CreateEvent') return 1;
-  if (event.type === 'WatchEvent') return 1;
-  return 1;
+// Height scaling formula from yoshi389111/github-profile-3d-contrib
+function getPillarHeight(count: number, level: number): number {
+  if (level === 0 || count <= 0) return 2.6;
+  return Math.log10(count / 20 + 1) * 144 + 4;
 }
 
-function modeUnit(mode: HeatmapMode) {
-  if (mode === 'commits') return 'commits';
-  if (mode === 'activity') return 'events';
-  return 'impact points';
-}
+export function ContributionHeatmap({
+  events,
+  calendar,
+  loading,
+  days: propDays,
+  mode,
+  eventFilter,
+  username = 'Vortex4047',
+}: ContributionHeatmapProps) {
+  const [animateKey, setAnimateKey] = useState(0);
+  const [hoveredDay, setHoveredDay] = useState<DayData | null>(null);
+  const [repoSvgAvailable, setRepoSvgAvailable] = useState<boolean | null>(null);
+  const [displayTab, setDisplayTab] = useState<'3d' | '2d' | 'both'>('3d');
+  const [selectedYear, setSelectedYear] = useState<string>('lastYear');
 
-function buildHeatmap(events: GitHubEvent[], days: number, mode: HeatmapMode, eventFilter: string): HeatmapCell[] {
-  const scoresByDate = new Map<string, number>();
-  const normalizedDays = Math.max(7, days);
+  // Check if user has an official committed profile-night-green.svg in their ${user}/${user} repo
+  useEffect(() => {
+    if (!username) return;
+    let isCancelled = false;
 
-  const endDay = new Date();
-  endDay.setHours(0, 0, 0, 0);
+    const checkSvg = async () => {
+      const branches = ['main', 'master'];
+      for (const branch of branches) {
+        const url = `https://raw.githubusercontent.com/${username}/${username}/${branch}/profile-3d-contrib/profile-night-green.svg`;
+        try {
+          const res = await fetch(url, { method: 'HEAD' });
+          if (!isCancelled && res.ok) {
+            setRepoSvgAvailable(true);
+            return;
+          }
+        } catch {
+          // ignore
+        }
+      }
+      if (!isCancelled) setRepoSvgAvailable(false);
+    };
 
-  const windowStart = new Date(endDay);
-  windowStart.setDate(endDay.getDate() - (normalizedDays - 1));
+    void checkSvg();
+    return () => {
+      isCancelled = true;
+    };
+  }, [username]);
 
-  events.forEach((event) => {
-    if (eventFilter !== 'all' && event.type !== eventFilter) return;
+  // Aggregate event counts as fallback if calendar API is not yet loaded
+  const countsByDateFromEvents = useMemo(() => {
+    const map = new Map<string, number>();
+    events.forEach((event) => {
+      if (eventFilter !== 'all' && event.type !== eventFilter) return;
+      const dateObj = new Date(event.createdAt);
+      if (Number.isNaN(dateObj.getTime())) return;
+      const year = dateObj.getFullYear();
+      const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const day = String(dateObj.getDate()).padStart(2, '0');
+      const dateKey = `${year}-${month}-${day}`;
 
-    const eventDate = new Date(event.createdAt);
-    if (Number.isNaN(eventDate.getTime())) return;
+      let weight = 1;
+      if (mode === 'commits') {
+        weight = event.type === 'PushEvent' ? Math.max(1, event.commitCount) : 0;
+      } else if (mode === 'activity') {
+        weight = 1;
+      } else {
+        weight = event.type === 'PushEvent' ? Math.max(1, event.commitCount) : event.prMerged ? 3 : 1;
+      }
 
-    eventDate.setHours(0, 0, 0, 0);
-    if (eventDate < windowStart || eventDate > endDay) return;
-
-    const weight = eventWeight(event, mode);
-    if (weight <= 0) return;
-
-    const key = toDateKey(eventDate);
-    scoresByDate.set(key, (scoresByDate.get(key) || 0) + weight);
-  });
-
-  const displayDays = Math.ceil(normalizedDays / GRID_DAYS) * GRID_DAYS;
-  const firstDay = new Date(endDay);
-  firstDay.setDate(endDay.getDate() - (displayDays - 1));
-
-  const cells: HeatmapCell[] = [];
-  for (let index = 0; index < displayDays; index += 1) {
-    const date = new Date(firstDay);
-    date.setDate(firstDay.getDate() + index);
-
-    const dateKey = toDateKey(date);
-    cells.push({
-      week: Math.floor(index / GRID_DAYS),
-      day: index % GRID_DAYS,
-      date: dateKey,
-      score: scoresByDate.get(dateKey) || 0,
+      if (weight > 0) {
+        map.set(dateKey, (map.get(dateKey) || 0) + weight);
+      }
     });
-  }
+    return map;
+  }, [events, mode, eventFilter]);
 
-  return cells;
-}
+  // Available year selector options
+  const availableYears = useMemo(() => {
+    const list: string[] = ['lastYear'];
+    if (calendar?.years && calendar.years.length > 0) {
+      calendar.years.forEach((y) => {
+        if (!list.includes(y.year)) list.push(y.year);
+      });
+    } else {
+      const currentYear = new Date().getFullYear();
+      for (let y = currentYear; y >= currentYear - 3; y--) {
+        list.push(String(y));
+      }
+    }
+    return list;
+  }, [calendar?.years]);
 
-function getIntensity(score: number, maxScore: number) {
-  if (score <= 0 || maxScore <= 0) return 0;
-  return Math.min(1, Math.log(score + 1) / Math.log(maxScore + 1));
-}
+  // Process and arrange the active dataset into 53 weeks of days
+  const calendarData = useMemo(() => {
+    let sourceDays: { date: string; count: number; level: number }[] = [];
 
-function getTowerHeight(score: number, maxScore: number) {
-  const intensity = getIntensity(score, maxScore);
-  if (score === 0) return MIN_TOWER_HEIGHT;
-  return Math.max(12, Math.round(MIN_TOWER_HEIGHT + intensity * MAX_TOWER_HEIGHT));
-}
+    if (calendar) {
+      if (selectedYear === 'lastYear') {
+        sourceDays = calendar.days || [];
+      } else if (calendar.allContributions && calendar.allContributions.length > 0) {
+        sourceDays = calendar.allContributions.filter((c) => c.date.startsWith(`${selectedYear}-`));
+      } else {
+        sourceDays = calendar.days || [];
+      }
+    }
 
-function pickPalette(intensity: number) {
-  if (intensity <= 0) return intensityPalette[0];
-  if (intensity < 0.25) return intensityPalette[1];
-  if (intensity < 0.5) return intensityPalette[2];
-  if (intensity < 0.75) return intensityPalette[3];
-  return intensityPalette[4];
-}
+    // If sourceDays is still empty (calendar not loaded), synthesize from events or date window
+    if (!sourceDays || sourceDays.length === 0) {
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+      const totalDays = 53 * 7;
+      const startDate = new Date(now);
+      startDate.setDate(now.getDate() - totalDays + 1);
 
-function pointsToString(points: Array<[number, number]>) {
-  return points.map(([x, y]) => `${x},${y}`).join(' ');
-}
-
-function formatMetricValue(value: number) {
-  return Number.isInteger(value) ? value.toLocaleString() : value.toFixed(1);
-}
-
-function getFloorPoints(gridWeeks: number): Array<[number, number]> {
-  return [
-    [0, -TILE_HEIGHT / 2],
-    [(gridWeeks * TILE_WIDTH) / 2, ((gridWeeks - 1) * TILE_HEIGHT) / 2],
-    [((gridWeeks - GRID_DAYS) * TILE_WIDTH) / 2, ((gridWeeks + GRID_DAYS - 1) * TILE_HEIGHT) / 2],
-    [(-GRID_DAYS * TILE_WIDTH) / 2, ((GRID_DAYS - 1) * TILE_HEIGHT) / 2],
-  ];
-}
-
-function getProjection(towers: TowerCell[], gridWeeks: number): Projection {
-  const floorPoints = getFloorPoints(gridWeeks);
-
-  let minX = Number.POSITIVE_INFINITY;
-  let maxX = Number.NEGATIVE_INFINITY;
-  let minY = Number.POSITIVE_INFINITY;
-  let maxY = Number.NEGATIVE_INFINITY;
-
-  const include = (x: number, y: number) => {
-    minX = Math.min(minX, x);
-    maxX = Math.max(maxX, x);
-    minY = Math.min(minY, y);
-    maxY = Math.max(maxY, y);
-  };
-
-  floorPoints.forEach(([x, y]) => include(x, y));
-
-  towers.forEach((tower) => {
-    include(tower.x - TILE_WIDTH / 2, tower.y + TILE_HEIGHT / 2);
-    include(tower.x + TILE_WIDTH / 2, tower.y + TILE_HEIGHT / 2);
-    include(tower.x - TILE_WIDTH / 2, tower.y - TILE_HEIGHT / 2 - tower.height);
-    include(tower.x + TILE_WIDTH / 2, tower.y - TILE_HEIGHT / 2 - tower.height);
-  });
-
-  const baselineY = floorPoints[2][1] + 8;
-  include(floorPoints[3][0] - 10, baselineY);
-  include(floorPoints[1][0] + 10, baselineY);
-
-  const drawWidth = Math.max(1, maxX - minX);
-  const drawHeight = Math.max(1, maxY - minY);
-
-  const paddingX = 24;
-  const paddingY = 20;
-
-  const scaleX = (VIEWBOX_WIDTH - paddingX * 2) / drawWidth;
-  const scaleY = (VIEWBOX_HEIGHT - paddingY * 2) / drawHeight;
-  const scale = Math.max(0.45, Math.min(scaleX, scaleY, 1.7));
-
-  const offsetX = (VIEWBOX_WIDTH - drawWidth * scale) / 2 - minX * scale;
-  const offsetY = (VIEWBOX_HEIGHT - drawHeight * scale) / 2 - minY * scale;
-
-  return {
-    scale,
-    offsetX,
-    offsetY,
-    floorPoints,
-    baselineY,
-  };
-}
-
-// Generate window positions for building faces
-function generateWindows(height: number, faceWidth: number): Array<{ x: number; y: number }> {
-  if (height < 20) return [];
-  const windows: Array<{ x: number; y: number }> = [];
-  const rows = Math.max(1, Math.floor((height - 8) / 10));
-  const cols = Math.max(1, Math.floor(faceWidth / 5));
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      // Randomly skip some windows to look realistic
-      if (Math.random() > 0.65) {
-        windows.push({
-          x: (c + 0.5) / cols,
-          y: (r + 0.5) / rows,
+      sourceDays = [];
+      for (let i = 0; i < totalDays; i++) {
+        const d = new Date(startDate);
+        d.setDate(startDate.getDate() + i);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const dateStr = `${y}-${m}-${day}`;
+        const count = countsByDateFromEvents.get(dateStr) || 0;
+        sourceDays.push({
+          date: dateStr,
+          count,
+          level: getContribLevel(count),
         });
       }
     }
-  }
-  return windows;
-}
 
-export function ContributionHeatmap({ events, loading, days, mode, eventFilter }: ContributionHeatmapProps) {
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
-  const [tooltip, setTooltip] = useState<TooltipState | null>(null);
-
-  const data = useMemo(
-    () => buildHeatmap(events, days, mode, eventFilter),
-    [events, days, mode, eventFilter]
-  );
-
-  const gridWeeks = Math.max(1, Math.ceil(data.length / GRID_DAYS));
-  const maxScore = useMemo(() => Math.max(1, ...data.map((entry) => entry.score)), [data]);
-
-  const towerData = useMemo(
-    () =>
-      [...data]
-        .map((entry) => {
-          const intensity = getIntensity(entry.score, maxScore);
-          const height = getTowerHeight(entry.score, maxScore);
-          return {
-            ...entry,
-            key: `${entry.date}-${entry.week}-${entry.day}`,
-            x: (entry.week - entry.day) * (TILE_WIDTH / 2),
-            y: (entry.week + entry.day) * (TILE_HEIGHT / 2),
-            height,
-            intensity,
-          };
-        })
-        .sort((a, b) => {
-          const depth = a.week + a.day - (b.week + b.day);
-          if (depth !== 0) return depth;
-          return a.day - b.day;
-        }),
-    [data, maxScore]
-  );
-
-  const projection = useMemo(() => getProjection(towerData, gridWeeks), [towerData, gridWeeks]);
-
-  const totalScore = useMemo(() => data.reduce((sum, cell) => sum + cell.score, 0), [data]);
-  const activeDays = useMemo(() => data.filter((cell) => cell.score > 0).length, [data]);
-
-  const activeCell = useMemo(
-    () => towerData.find((entry) => entry.key === hoveredKey) || null,
-    [hoveredKey, towerData]
-  );
-
-  const updateTooltip = (event: React.PointerEvent<SVGGElement>, cell: TowerCell) => {
-    if (!rootRef.current) return;
-    const bounds = rootRef.current.getBoundingClientRect();
-    setTooltip({
-      x: event.clientX - bounds.left,
-      y: event.clientY - bounds.top,
-      cell,
-    });
-  };
-
-  const handlePointerEnter = (event: React.PointerEvent<SVGGElement>, cell: TowerCell) => {
-    setHoveredKey(cell.key);
-    updateTooltip(event, cell);
-  };
-
-  const handlePointerMove = (event: React.PointerEvent<SVGGElement>, cell: TowerCell) => {
-    setHoveredKey(cell.key);
-    updateTooltip(event, cell);
-  };
-
-  const handlePointerLeave = () => {
-    setHoveredKey(null);
-    setTooltip(null);
-  };
-
-  const tooltipLabel = tooltip?.cell || activeCell;
-
-  const tooltipMaxX = rootRef.current ? rootRef.current.clientWidth - 32 : 600;
-  const tooltipMaxY = rootRef.current ? rootRef.current.clientHeight - 28 : 280;
-  const safeTooltipX = tooltip ? Math.max(32, Math.min(tooltip.x, tooltipMaxX)) : 0;
-  const safeTooltipY = tooltip ? Math.max(32, Math.min(tooltip.y, tooltipMaxY)) : 0;
-
-  const legendSteps = [0, 0.24, 0.45, 0.7, 0.95].map((step) => pickPalette(step));
-
-  const unit = modeUnit(mode);
-  const panelCaption = loading
-    ? `Loading ${unit} skyline...`
-    : `Last ${days} days • ${formatMetricValue(totalScore)} ${unit}`;
-
-  const topCell = useMemo(() => [...data].sort((a, b) => b.score - a.score)[0], [data]);
-
-  const topText =
-    topCell && topCell.score > 0
-      ? `${formatMetricValue(topCell.score)} ${unit} on ${dateFmt.format(new Date(topCell.date))}`
-      : `No ${unit} found in this window.`;
-
-  // Seed-based pseudo-random for consistent window patterns
-  const windowSeed = useMemo(() => Math.random(), [data]);
-
-  const createPillar = (cell: TowerCell) => {
-    const floorTop: [number, number] = [cell.x, cell.y - TILE_HEIGHT / 2];
-    const floorRight: [number, number] = [cell.x + TILE_WIDTH / 2, cell.y];
-    const floorBottom: [number, number] = [cell.x, cell.y + TILE_HEIGHT / 2];
-    const floorLeft: [number, number] = [cell.x - TILE_WIDTH / 2, cell.y];
-
-    const topTop: [number, number] = [floorTop[0], floorTop[1] - cell.height];
-    const topRight: [number, number] = [floorRight[0], floorRight[1] - cell.height];
-    const topBottom: [number, number] = [floorBottom[0], floorBottom[1] - cell.height];
-    const topLeft: [number, number] = [floorLeft[0], floorLeft[1] - cell.height];
-
-    const topFace = pointsToString([topTop, topRight, topBottom, topLeft]);
-    const leftFace = pointsToString([topLeft, topBottom, floorBottom, floorLeft]);
-    const rightFace = pointsToString([topRight, topBottom, floorBottom, floorRight]);
-    const floorFace = pointsToString([floorTop, floorRight, floorBottom, floorLeft]);
-
-    const palette = pickPalette(cell.intensity);
-    const isActive = hoveredKey === cell.key;
-    const glow = isActive ? `drop-shadow(0 0 12px ${palette.glow})` : 'none';
-    const opacity = cell.score === 0 ? 0.55 : 1;
-    const animationDelay = `${((cell.week + cell.day) % 16) * 34}ms`;
-
-    // Generate windows on the left face
-    const leftWindows: JSX.Element[] = [];
-    const rightWindows: JSX.Element[] = [];
-
-    if (cell.height > 18 && cell.score > 0) {
-      const numRows = Math.max(1, Math.floor((cell.height - 6) / 12));
-      const numCols = 2;
-
-      // Left face windows
-      for (let r = 0; r < numRows; r++) {
-        for (let c = 0; c < numCols; c++) {
-          const litSeed = ((cell.week * 7 + cell.day) * 13 + r * 5 + c * 3) % 10;
-          if (litSeed < 4) continue; // skip some windows
-
-          const tFace = (r + 0.3) / numRows;
-          const sFace = (c + 0.3) / numCols;
-          const wFaceWidth = 0.4 / numCols;
-          const wFaceHeight = 0.35 / numRows;
-
-          // Interpolate on the left face quadrilateral
-          const lx = topLeft[0] + (topBottom[0] - topLeft[0]) * sFace + (floorLeft[0] - topLeft[0]) * tFace;
-          const ly = topLeft[1] + (topBottom[1] - topLeft[1]) * sFace + (floorLeft[1] - topLeft[1]) * tFace;
-
-          const lit = litSeed > 6;
-          leftWindows.push(
-            <rect
-              key={`lw-${r}-${c}`}
-              x={lx - 1}
-              y={ly - 1}
-              width={2.5 * wFaceWidth * TILE_WIDTH}
-              height={2 * wFaceHeight * cell.height}
-              fill={lit ? palette.windows : 'rgba(0,0,0,0.2)'}
-              opacity={lit ? (isActive ? 0.9 : 0.7) : 0.3}
-              rx="0.3"
-            />
-          );
-        }
-      }
-
-      // Right face windows
-      for (let r = 0; r < numRows; r++) {
-        for (let c = 0; c < numCols; c++) {
-          const litSeed = ((cell.week * 7 + cell.day) * 11 + r * 7 + c * 2) % 10;
-          if (litSeed < 4) continue;
-
-          const tFace = (r + 0.3) / numRows;
-          const sFace = (c + 0.3) / numCols;
-
-          const rx = topRight[0] + (topBottom[0] - topRight[0]) * (1 - sFace) + (floorRight[0] - topRight[0]) * tFace;
-          const ry = topRight[1] + (topBottom[1] - topRight[1]) * (1 - sFace) + (floorRight[1] - topRight[1]) * tFace;
-
-          const lit = litSeed > 5;
-          rightWindows.push(
-            <rect
-              key={`rw-${r}-${c}`}
-              x={rx - 1.2}
-              y={ry - 1}
-              width={2.2}
-              height={1.8}
-              fill={lit ? palette.windows : 'rgba(0,0,0,0.15)'}
-              opacity={lit ? (isActive ? 0.9 : 0.65) : 0.25}
-              rx="0.2"
-            />
-          );
-        }
-      }
+    // Sort sourceDays chronologically
+    const sortedSource = [...sourceDays].sort((a, b) => a.date.localeCompare(b.date));
+    if (sortedSource.length === 0) {
+      return { days: [], sortedPillars: [], weeksCount: 53, totalContributions: 0, monthStarts: [] };
     }
 
-    // Antenna for tallest buildings
-    const showAntenna = cell.score === maxScore && cell.height > 60;
-    const antennaTop: [number, number] = [(topTop[0] + topBottom[0]) / 2, topTop[1] - 14];
+    const firstDate = new Date(`${sortedSource[0].date}T00:00:00Z`);
+    const firstSunday = new Date(firstDate);
+    firstSunday.setUTCDate(firstSunday.getUTCDate() - firstSunday.getUTCDay());
 
-    return (
-      <g
-        key={cell.key}
-        role="button"
-        tabIndex={0}
-        aria-label={`${formatMetricValue(cell.score)} ${unit} on ${cell.date}`}
-        className={`city-pillar ${isActive ? 'city-pillar--active' : ''}`}
-        style={{ '--pillar-delay': animationDelay, '--pillar-intensity': `${cell.intensity}` } as CSSProperties}
-        onPointerEnter={(event) => handlePointerEnter(event, cell)}
-        onPointerMove={(event) => handlePointerMove(event, cell)}
-        onPointerLeave={handlePointerLeave}
-        onClick={(event) => {
-          if (isActive) {
-            handlePointerLeave();
-            return;
-          }
-          handlePointerEnter(event, cell);
-        }}
-        onFocus={() => setHoveredKey(cell.key)}
-        onBlur={() => setHoveredKey(null)}
-      >
-        {/* Floor shadow */}
-        <polygon points={floorFace} className="city-pillar__floor" />
+    const result: DayData[] = [];
+    let maxWeek = 0;
+    const monthStarts: { month: string; weekIndex: number }[] = [];
+    let lastMonth = -1;
 
-        {/* Building body */}
-        <polygon points={leftFace} fill={palette.left} opacity={opacity} className="city-pillar__left" style={{ filter: glow }} />
-        <polygon points={rightFace} fill={palette.right} opacity={opacity} className="city-pillar__right" style={{ filter: glow }} />
-        <polygon points={topFace} fill={palette.top} opacity={1} className="city-pillar__top" style={{ filter: glow }} />
+    sortedSource.forEach((item) => {
+      const cur = new Date(`${item.date}T00:00:00Z`);
+      const diffDays = Math.floor((cur.getTime() - firstSunday.getTime()) / 86400000);
+      const weekIndex = Math.max(0, Math.floor(diffDays / 7));
+      const dayOfWeek = cur.getUTCDay();
 
-        {/* Windows */}
-        {leftWindows}
-        {rightWindows}
+      if (weekIndex > maxWeek) maxWeek = weekIndex;
 
-        {/* Top edge highlight */}
-        <polyline
-          points={pointsToString([topLeft, topTop, topRight])}
-          fill="none"
-          stroke="rgba(255,255,255,0.4)"
-          strokeWidth="0.5"
-          strokeLinecap="round"
-          className="city-pillar__edge"
-        />
-        <polyline
-          points={pointsToString([topLeft, topBottom, topRight])}
-          fill="none"
-          stroke="rgba(255,255,255,0.15)"
-          strokeWidth="0.35"
-          strokeLinecap="round"
-        />
+      const m = cur.getUTCMonth();
+      if (m !== lastMonth) {
+        lastMonth = m;
+        const monthShort = cur.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
+        monthStarts.push({ month: monthShort, weekIndex });
+      }
 
-        {/* Rooftop light */}
-        <circle
-          cx={(topTop[0] + topBottom[0]) / 2}
-          cy={(topTop[1] + topBottom[1]) / 2}
-          r={cell.score > 0 ? 1 : 0.5}
-          fill={cell.score > 0 ? palette.windows : 'rgba(255,255,255,0.2)'}
-          opacity={isActive ? 1 : 0.7}
-        />
-
-        {/* Antenna on tallest buildings */}
-        {showAntenna && (
-          <>
-            <line
-              x1={(topTop[0] + topBottom[0]) / 2}
-              y1={topTop[1]}
-              x2={antennaTop[0]}
-              y2={antennaTop[1]}
-              stroke="rgba(200,220,255,0.6)"
-              strokeWidth="0.6"
-            />
-            <circle cx={antennaTop[0]} cy={antennaTop[1]} r="1.2" fill="#ef4444" opacity="0.9">
-              <animate attributeName="opacity" values="0.9;0.3;0.9" dur="1.5s" repeatCount="indefinite" />
-            </circle>
-          </>
-        )}
-
-        {/* Ground glow / street light effect */}
-        {cell.score > 0 && (
-          <ellipse
-            cx={cell.x}
-            cy={cell.y + TILE_HEIGHT / 2 + 1}
-            rx={TILE_WIDTH / 3}
-            ry={TILE_HEIGHT / 4}
-            fill={palette.glow}
-            opacity={isActive ? 0.6 : 0.25}
-          />
-        )}
-      </g>
-    );
-  };
-
-  // Generate stars for the sky
-  const stars = useMemo(() => {
-    const result: Array<{ cx: number; cy: number; r: number; opacity: number }> = [];
-    for (let i = 0; i < 40; i++) {
       result.push({
-        cx: (i * 197 + 31) % VIEWBOX_WIDTH,
-        cy: (i * 127 + 17) % (VIEWBOX_HEIGHT * 0.4),
-        r: ((i * 13) % 3) * 0.3 + 0.4,
-        opacity: ((i * 23) % 5) * 0.12 + 0.2,
+        date: cur,
+        dateStr: item.date,
+        weekIndex,
+        dayOfWeek,
+        count: item.count,
+        level: item.level,
       });
+    });
+
+    const totalWeeks = Math.max(52, maxWeek + 1);
+
+    // CRITICAL DEPTH SORTING: (weekIndex + dayOfWeek) ascending ensures proper isometric painter occlusion
+    const sortedPillars = [...result].sort(
+      (a, b) => a.weekIndex + a.dayOfWeek - (b.weekIndex + b.dayOfWeek)
+    );
+
+    const totalCount =
+      selectedYear === 'lastYear' && calendar?.totalContributions
+        ? calendar.totalContributions
+        : result.reduce((sum, d) => sum + d.count, 0);
+
+    return {
+      days: result,
+      sortedPillars,
+      weeksCount: totalWeeks,
+      totalContributions: totalCount,
+      monthStarts,
+    };
+  }, [calendar, selectedYear, countsByDateFromEvents]);
+
+  // Compute Radar telemetry stats for top-right (matching github-profile-3d-contrib)
+  const radarData = useMemo(() => {
+    const commits = events.filter((e) => e.type === 'PushEvent').reduce((s, e) => s + e.commitCount, 0);
+    const prs = events.filter((e) => e.type === 'PullRequestEvent').length;
+    const issues = events.filter((e) => e.type === 'IssuesEvent').length;
+    const reviews = events.filter((e) => e.type === 'PullRequestReviewEvent').length;
+    const stars = events.filter((e) => e.type === 'WatchEvent').length;
+
+    const maxVal = Math.max(8, commits, prs * 3, issues * 3, reviews * 3, stars * 2);
+    return [
+      { label: 'Commits', val: Math.min(1, Math.max(0.18, commits / maxVal)), raw: commits },
+      { label: 'PRs', val: Math.min(1, Math.max(0.18, (prs * 3) / maxVal)), raw: prs },
+      { label: 'Issues', val: Math.min(1, Math.max(0.18, (issues * 3) / maxVal)), raw: issues },
+      { label: 'Reviews', val: Math.min(1, Math.max(0.18, (reviews * 3) / maxVal)), raw: reviews },
+      { label: 'Stars', val: Math.min(1, Math.max(0.18, (stars * 2) / maxVal)), raw: stars },
+    ];
+  }, [events]);
+
+  // 3D Isometric View Parameters & Bounding Box Centering Math
+  const svgWidth = 1120;
+  const svgHeight = 630;
+  const dx = 16.5; // Step in X
+  const ANGLE = 30;
+  const dy = dx * Math.tan((ANGLE * Math.PI) / 180); // ~9.526
+  const dxx = dx * 0.9;
+  const dyy = dy * 0.9;
+
+  // Calculate the exact bounding box of the entire 53-week 3D isometric grid
+  const bounds = useMemo(() => {
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+
+    calendarData.sortedPillars.forEach((d) => {
+      const px = (d.weekIndex - d.dayOfWeek) * dx;
+      const py = (d.weekIndex + d.dayOfWeek) * dy;
+      const h = getPillarHeight(d.count, d.level);
+
+      if (px - dxx < minX) minX = px - dxx;
+      if (px + dxx * 2 > maxX) maxX = px + dxx * 2;
+      if (py - h - dyy < minY) minY = py - h - dyy;
+      if (py + dyy * 2.5 > maxY) maxY = py + dyy * 2.5;
+    });
+
+    if (!Number.isFinite(minX)) {
+      return { scale: 1, translateX: 0, translateY: 0 };
     }
-    return result;
-  }, []);
+
+    const gridWidth = maxX - minX;
+    const gridHeight = maxY - minY;
+
+    const availYStart = 90;
+    const availYEnd = svgHeight - 45;
+    const availHeight = availYEnd - availYStart;
+    const availWidth = svgWidth - 60;
+
+    const scale = Math.min(1.02, Math.min(availWidth / gridWidth, availHeight / gridHeight));
+    const scaledWidth = gridWidth * scale;
+    const scaledHeight = gridHeight * scale;
+
+    const translateX = (svgWidth - scaledWidth) / 2 - minX * scale;
+    const translateY = availYStart + (availHeight - scaledHeight) / 2 - minY * scale;
+
+    return {
+      scale,
+      translateX,
+      translateY,
+    };
+  }, [calendarData.sortedPillars, dx, dy, dxx, dyy, svgWidth, svgHeight]);
+
+  const repoSvgUrl = `https://raw.githubusercontent.com/${username}/${username}/main/profile-3d-contrib/profile-night-green.svg`;
+
+  // Format date nicely for tooltip
+  const formatTooltipDate = (d: DayData) => {
+    try {
+      return d.date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        timeZone: 'UTC',
+      });
+    } catch {
+      return d.dateStr;
+    }
+  };
+
+  const currentYearLabel =
+    selectedYear === 'lastYear' ? 'the last year' : selectedYear;
 
   return (
     <div className="space-y-4">
-      <h3 className="text-xl">Contribution City</h3>
-      <div className="neo-panel p-6">
-        <div className="flex items-center justify-between gap-3 mb-5">
-          <h4 className="text-sm uppercase tracking-[0.18em] text-cyan-200/85">Contribution Skyline</h4>
-          <p className="text-xs text-slate-300">{panelCaption}</p>
+      {/* Header & Controls */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Box className="w-4 h-4 text-emerald-400" />
+          <h3 className="text-lg font-semibold text-white tracking-tight">
+            Contribution Graph
+          </h3>
+          <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
+            {calendarData.totalContributions.toLocaleString()} contributions
+          </span>
         </div>
 
-        <div ref={rootRef} className="city-heatmap-wrap">
-          <svg
-            viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
-            className="h-[300px] w-full md:h-[360px]"
-            preserveAspectRatio="xMidYMid meet"
+        <div className="flex flex-wrap items-center gap-2">
+          {/* View Mode Toggle: 3D, 2D Profile, Both */}
+          <div className="flex items-center bg-[#161b22] border border-white/10 rounded-lg p-0.5 text-xs">
+            <button
+              type="button"
+              onClick={() => setDisplayTab('3d')}
+              className={`px-2.5 py-1 rounded-md transition-all flex items-center gap-1.5 font-medium ${
+                displayTab === '3d'
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Sparkles className="w-3 h-3" />
+              <span>3D Night Green</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDisplayTab('2d')}
+              className={`px-2.5 py-1 rounded-md transition-all flex items-center gap-1.5 font-medium ${
+                displayTab === '2d'
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Calendar className="w-3 h-3" />
+              <span>2D GitHub Profile</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDisplayTab('both')}
+              className={`px-2.5 py-1 rounded-md transition-all flex items-center gap-1.5 font-medium ${
+                displayTab === 'both'
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Grid3X3 className="w-3 h-3" />
+              <span>Both</span>
+            </button>
+          </div>
+
+          {displayTab !== '2d' && (
+            <button
+              type="button"
+              onClick={() => setAnimateKey((k) => k + 1)}
+              className="control-pill"
+              title="Replay 3D Pillar Growth Animation"
+            >
+              <Play className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Replay Growth</span>
+            </button>
+          )}
+
+          <a
+            href="https://github.com/yoshi389111/github-profile-3d-contrib"
+            target="_blank"
+            rel="noreferrer"
+            className="control-pill text-slate-400 hover:text-white"
+            title="View yoshi389111/github-profile-3d-contrib"
           >
-            <defs>
-              <radialGradient id="cityAura" cx="50%" cy="76%" r="70%">
-                <stop offset="0%" stopColor="rgba(56,189,248,0.22)" />
-                <stop offset="58%" stopColor="rgba(56,189,248,0.06)" />
-                <stop offset="100%" stopColor="rgba(2,6,23,0)" />
-              </radialGradient>
-              <linearGradient id="citySkyline" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="rgba(10,15,30,0.95)" />
-                <stop offset="25%" stopColor="rgba(15,25,50,0.85)" />
-                <stop offset="55%" stopColor="rgba(20,35,65,0.65)" />
-                <stop offset="100%" stopColor="rgba(2,6,23,0)" />
-              </linearGradient>
-              <linearGradient id="cityFloor" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#1f3f67" stopOpacity="0.9" />
-                <stop offset="100%" stopColor="#101f37" stopOpacity="0.72" />
-              </linearGradient>
-              <pattern id="cityFloorGrid" width="12" height="12" patternUnits="userSpaceOnUse">
-                <path d="M 12 0 L 0 0 0 12" fill="none" stroke="rgba(125,211,252,0.12)" strokeWidth="0.5" />
-              </pattern>
-              <radialGradient id="cityFloorGlow" cx="50%" cy="50%" r="50%">
-                <stop offset="0%" stopColor="rgba(56,189,248,0.15)" />
-                <stop offset="100%" stopColor="rgba(2,6,23,0)" />
-              </radialGradient>
-            </defs>
+            <ExternalLink className="w-3.5 h-3.5" />
+            <span>Action Spec</span>
+          </a>
+        </div>
+      </div>
 
-            {/* Night sky */}
-            <rect x="0" y="0" width={VIEWBOX_WIDTH} height={VIEWBOX_HEIGHT} fill="url(#citySkyline)" opacity="0.95" />
+      {/* VIEW: 3D ISOMETRIC NIGHT GREEN */}
+      {(displayTab === '3d' || displayTab === 'both') && (
+        <div className="neo-panel p-4 sm:p-6 bg-[#00000f] border-white/10 relative overflow-hidden flex flex-col items-center justify-center">
+          {loading && (
+            <div className="absolute inset-0 bg-[#00000f]/80 backdrop-blur-sm z-20 flex items-center justify-center text-xs text-slate-300 gap-2">
+              <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" />
+              Loading real-time contribution telemetry...
+            </div>
+          )}
 
-            {/* Stars */}
-            {stars.map((star, i) => (
-              <circle key={`star-${i}`} cx={star.cx} cy={star.cy} r={star.r} fill="white" opacity={star.opacity}>
-                {i % 5 === 0 && (
-                  <animate attributeName="opacity" values={`${star.opacity};${star.opacity * 0.3};${star.opacity}`} dur={`${2 + (i % 3)}s`} repeatCount="indefinite" />
-                )}
-              </circle>
-            ))}
+          <div className="w-full flex justify-center">
+            <svg
+              key={animateKey}
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+              className="w-full h-auto max-h-[580px] select-none block"
+              style={{ fontFamily: '"Sora", "Ubuntu", sans-serif' }}
+            >
+              {/* Deep Night Green Background */}
+              <rect x="0" y="0" width={svgWidth} height={svgHeight} fill="#00000f" rx="8" />
 
-            {/* Moon */}
-            <circle cx={VIEWBOX_WIDTH - 60} cy={40} r="12" fill="rgba(255,255,240,0.08)" />
-            <circle cx={VIEWBOX_WIDTH - 58} cy={38} r="10" fill="rgba(255,255,240,0.12)" />
-            <circle cx={VIEWBOX_WIDTH - 56} cy={36} r="6" fill="rgba(255,255,250,0.06)" />
+              {/* Title / Header Telemetry (Top-Left) */}
+              <g transform="translate(48, 46)">
+                <text fill="rgb(255, 200, 55)" fontSize="26" fontWeight="bold">
+                  {calendarData.totalContributions.toLocaleString()}
+                </text>
+                <text fill="#aaaaaa" fontSize="12" y="20" letterSpacing="0.02em">
+                  contributions in {currentYearLabel} • Night Green 3D Engine
+                </text>
+              </g>
 
-            <g transform={`translate(${projection.offsetX} ${projection.offsetY}) scale(${projection.scale})`}>
-              {/* Floor aura */}
-              <ellipse cx="0" cy={projection.baselineY - 6} rx={190} ry={26} fill="url(#cityAura)" opacity="0.85" />
+              {/* Top-Right Telemetry Radar Chart */}
+              <g transform="translate(940, 46)">
+                <circle cx="65" cy="45" r="38" fill="none" stroke="#222233" strokeWidth="1" />
+                <circle cx="65" cy="45" r="24" fill="none" stroke="#222233" strokeWidth="1" />
+                <circle cx="65" cy="45" r="12" fill="none" stroke="#222233" strokeWidth="1" />
 
-              {/* Floor platform */}
-              <polygon points={pointsToString(projection.floorPoints)} fill="url(#cityFloor)" opacity="0.65" />
-              <polygon points={pointsToString(projection.floorPoints)} fill="url(#cityFloorGrid)" opacity="0.7" />
+                {radarData.map((item, idx) => {
+                  const angle = (idx * 2 * Math.PI) / radarData.length - Math.PI / 2;
+                  const x = 65 + 38 * Math.cos(angle);
+                  const y = 45 + 38 * Math.sin(angle);
+                  const lx = 65 + 50 * Math.cos(angle);
+                  const ly = 45 + 50 * Math.sin(angle);
 
-              {/* Floor glow */}
-              <ellipse
-                cx={(projection.floorPoints[0][0] + projection.floorPoints[2][0]) / 2}
-                cy={(projection.floorPoints[0][1] + projection.floorPoints[2][1]) / 2}
-                rx={80}
-                ry={20}
-                fill="url(#cityFloorGlow)"
-                opacity="0.5"
-              />
+                  return (
+                    <g key={item.label}>
+                      <line x1="65" y1="45" x2={x} y2={y} stroke="#2a2a3c" strokeWidth="0.75" />
+                      <text
+                        x={lx}
+                        y={ly + 3}
+                        fill="#777788"
+                        fontSize="8.5"
+                        textAnchor="middle"
+                        fontFamily="monospace"
+                      >
+                        {item.label}
+                      </text>
+                    </g>
+                  );
+                })}
 
-              {/* Buildings */}
-              {towerData.map(createPillar)}
+                <polygon
+                  points={radarData
+                    .map((item, idx) => {
+                      const angle = (idx * 2 * Math.PI) / radarData.length - Math.PI / 2;
+                      const r = 8 + item.val * 28;
+                      return `${65 + r * Math.cos(angle)},${45 + r * Math.sin(angle)}`;
+                    })
+                    .join(' ')}
+                  fill="#47a042"
+                  fillOpacity="0.45"
+                  stroke="#47a042"
+                  strokeWidth="2"
+                />
+              </g>
 
-              {/* Base line */}
-              <line
-                x1={projection.floorPoints[3][0] - 8}
-                y1={projection.baselineY}
-                x2={projection.floorPoints[1][0] + 8}
-                y2={projection.baselineY}
-                stroke="rgba(74,188,255,0.5)"
-                strokeWidth="1.2"
-              />
-            </g>
-          </svg>
+              {/* 3D Isometric Contribution Pillars (FULL 53-WEEK YEAR, PERFECTLY CENTERED) */}
+              <g transform={`translate(${bounds.translateX}, ${bounds.translateY}) scale(${bounds.scale})`}>
+                {calendarData.sortedPillars.map((d) => {
+                  const baseX = (d.weekIndex - d.dayOfWeek) * dx;
+                  const baseY = (d.weekIndex + d.dayOfWeek) * dy;
+                  const calHeight = getPillarHeight(d.count, d.level);
+                  const color = NIGHT_GREEN_COLORS[d.level] || NIGHT_GREEN_COLORS[0];
 
-          {tooltipLabel && (
-            <div className="city-tooltip" style={{ left: safeTooltipX, top: safeTooltipY }}>
-              <p className="city-tooltip__date">{dateFmt.format(new Date(tooltipLabel.date))}</p>
-              <p className="city-tooltip__value">
-                {formatMetricValue(tooltipLabel.score)} {unit}
-              </p>
-              <p className="city-tooltip__meta">Week {tooltipLabel.week + 1}, day {tooltipLabel.day + 1}</p>
+                  return (
+                    <g
+                      key={d.dateStr}
+                      transform={`translate(${baseX} ${baseY - calHeight})`}
+                      onMouseEnter={() => setHoveredDay(d)}
+                      onMouseLeave={() => setHoveredDay(null)}
+                      className="cursor-pointer transition-opacity hover:opacity-90"
+                    >
+                      {/* Pillar Growth Animation */}
+                      {d.level > 0 && (
+                        <animateTransform
+                          attributeName="transform"
+                          type="translate"
+                          values={`${baseX} ${baseY - 2.6};${baseX} ${baseY - calHeight}`}
+                          dur="1.4s"
+                          repeatCount="1"
+                        />
+                      )}
+
+                      {/* Top Panel (Isometric Rhombus) */}
+                      <rect
+                        stroke="none"
+                        x="0"
+                        y="0"
+                        width={dxx}
+                        height={dxx}
+                        transform="skewY(-30) skewX(40.89) scale(1 1.15)"
+                        fill={color.top}
+                      />
+
+                      {/* Left Panel */}
+                      <rect
+                        stroke="none"
+                        x="0"
+                        y="0"
+                        width={dxx}
+                        height={calHeight}
+                        transform="skewY(30) scale(1 1.15)"
+                        fill={color.left}
+                      >
+                        {d.level > 0 && (
+                          <animate
+                            attributeName="height"
+                            values={`2.6;${calHeight}`}
+                            dur="1.4s"
+                            repeatCount="1"
+                          />
+                        )}
+                      </rect>
+
+                      {/* Right Panel */}
+                      <rect
+                        stroke="none"
+                        x="0"
+                        y="0"
+                        width={dxx}
+                        height={calHeight}
+                        transform={`translate(${dxx} ${dyy}) skewY(-30) scale(1 1.15)`}
+                        fill={color.right}
+                      >
+                        {d.level > 0 && (
+                          <animate
+                            attributeName="height"
+                            values={`2.6;${calHeight}`}
+                            dur="1.4s"
+                            repeatCount="1"
+                          />
+                        )}
+                      </rect>
+                    </g>
+                  );
+                })}
+              </g>
+
+              {/* Bottom Centered Legend */}
+              <g transform={`translate(${(svgWidth - 160) / 2}, ${svgHeight - 24})`}>
+                <text fill="#777788" fontSize="10.5" y="10">
+                  Less
+                </text>
+                {NIGHT_GREEN_COLORS.map((c, idx) => (
+                  <rect
+                    key={idx}
+                    x={32 + idx * 18}
+                    y="1"
+                    width="12"
+                    height="12"
+                    fill={c.top}
+                    rx="1.5"
+                  />
+                ))}
+                <text fill="#777788" fontSize="10.5" x={32 + 5 * 18 + 6} y="10">
+                  More
+                </text>
+              </g>
+            </svg>
+          </div>
+
+          {/* Interactive Hover Tooltip */}
+          {hoveredDay && (
+            <div className="absolute bottom-3 right-4 bg-slate-900/95 border border-white/20 rounded-md px-3 py-2 text-xs shadow-2xl pointer-events-none z-30 font-mono">
+              <div className="font-semibold text-white">{formatTooltipDate(hoveredDay)}</div>
+              <div className="text-emerald-400 font-medium">
+                {hoveredDay.count} contribution{hoveredDay.count === 1 ? '' : 's'}
+              </div>
+              <div className="text-[10px] text-slate-400">Activity level {hoveredDay.level} of 4</div>
             </div>
           )}
         </div>
+      )}
 
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
-          <p className="text-xs text-slate-300">
-            Peak day: <span className="text-cyan-300">{topText}</span>
-          </p>
-          <p className="text-xs text-slate-300">
-            Active days: <span className="text-cyan-300">{activeDays.toLocaleString()}</span>
-          </p>
-          {loading && <p className="text-xs text-slate-400">Loading contribution skyline...</p>}
-        </div>
+      {/* VIEW: 2D GITHUB PROFILE CALENDAR (EXACT MATCH TO USER'S GITHUB PROFILE SCREENSHOT) */}
+      {(displayTab === '2d' || displayTab === 'both') && (
+        <div className="flex flex-col 2xl:flex-row gap-4 items-start w-full">
+          {/* Main 2D Calendar Card */}
+          <div className="flex-1 min-w-0 w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-4 sm:p-5 text-slate-200">
+            {/* Header: "112 contributions in the last year" + settings + year selector */}
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-3 text-sm">
+              <h4 className="font-medium text-white text-base">
+                {calendarData.totalContributions.toLocaleString()} contributions in {currentYearLabel}
+              </h4>
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Year pills for standard & medium viewports */}
+                <div className="flex 2xl:hidden items-center gap-1 bg-[#161b22] border border-[#30363d] rounded-md p-0.5 overflow-x-auto">
+                  {availableYears.map((yearKey) => {
+                    const isSelected = selectedYear === yearKey;
+                    const displayLabel = yearKey === 'lastYear' ? 'Last year' : yearKey;
 
-        <div className="flex items-center justify-between mt-5 text-xs text-slate-300">
-          <span>Low</span>
-          <div className="flex items-center gap-1.5">
-            {legendSteps.map((step, index) => (
-              <div
-                key={`legend-${index}`}
-                className="h-4 w-4 rounded-sm border border-white/15"
-                style={{ backgroundColor: step.top }}
-              ></div>
-            ))}
+                    return (
+                      <button
+                        key={yearKey}
+                        type="button"
+                        onClick={() => setSelectedYear(yearKey)}
+                        className={`px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap transition-all ${
+                          isSelected
+                            ? 'bg-[#1f6feb] text-white shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {displayLabel}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 cursor-pointer">
+                  <span>Contribution settings</span>
+                  <span className="text-[10px]">▼</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Inner Calendar Border Box (matching GitHub profile) */}
+            <div className="border border-[#30363d] rounded-md p-3 sm:p-4 bg-[#0d1117] overflow-x-auto">
+              <div className="min-w-[690px]">
+                {/* SVG 2D Grid */}
+                <svg
+                  viewBox="0 0 740 125"
+                  className="w-full h-auto select-none"
+                  style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif' }}
+                >
+                  {/* Month labels along the top */}
+                  <g transform="translate(32, 14)">
+                    {calendarData.monthStarts.map((m, idx) => (
+                      <text
+                        key={idx}
+                        x={m.weekIndex * 13.2}
+                        y="0"
+                        fill="#8b949e"
+                        fontSize="10"
+                      >
+                        {m.month}
+                      </text>
+                    ))}
+                  </g>
+
+                  {/* Day of Week Labels: Mon, Wed, Fri */}
+                  <g transform="translate(0, 32)">
+                    <text x="0" y="21" fill="#8b949e" fontSize="9.5">
+                      Mon
+                    </text>
+                    <text x="0" y="47" fill="#8b949e" fontSize="9.5">
+                      Wed
+                    </text>
+                    <text x="0" y="73" fill="#8b949e" fontSize="9.5">
+                      Fri
+                    </text>
+                  </g>
+
+                  {/* 53 Weeks x 7 Days Contribution Rectangles */}
+                  <g transform="translate(32, 22)">
+                    {calendarData.days.map((d) => {
+                      const x = d.weekIndex * 13.2;
+                      const y = d.dayOfWeek * 13;
+                      const fillColor = GITHUB_2D_COLORS[d.level] || GITHUB_2D_COLORS[0];
+
+                      return (
+                        <rect
+                          key={d.dateStr}
+                          x={x}
+                          y={y}
+                          width="10.5"
+                          height="10.5"
+                          rx="2"
+                          ry="2"
+                          fill={fillColor}
+                          stroke={d.level === 0 ? '#1b1f24' : 'transparent'}
+                          strokeWidth="0.5"
+                          className="cursor-pointer transition-all hover:stroke-white hover:stroke-[1.5]"
+                          onMouseEnter={() => setHoveredDay(d)}
+                          onMouseLeave={() => setHoveredDay(null)}
+                        >
+                          <title>
+                            {d.count} contribution{d.count === 1 ? '' : 's'} on {formatTooltipDate(d)}
+                          </title>
+                        </rect>
+                      );
+                    })}
+                  </g>
+                </svg>
+
+                {/* Footer: Learn how we count contributions + Legend */}
+                <div className="flex items-center justify-between pt-3 text-xs text-[#8b949e]">
+                  <a
+                    href="https://docs.github.com/en/account-and-profile/setting-up-and-managing-your-github-profile/managing-contribution-settings-on-your-profile/why-are-my-contributions-not-showing-up-on-my-profile"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="hover:text-blue-400 transition-colors"
+                  >
+                    Learn how we count contributions
+                  </a>
+
+                  <div className="flex items-center gap-1.5">
+                    <span>Less</span>
+                    <div className="flex gap-1 items-center">
+                      {GITHUB_2D_COLORS.map((color, idx) => (
+                        <div
+                          key={idx}
+                          className="w-2.5 h-2.5 rounded-[2px]"
+                          style={{ backgroundColor: color }}
+                        />
+                      ))}
+                    </div>
+                    <span>More</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-          <span>High</span>
+
+          {/* Right Sidebar: Year Selector (visible on wide screens, matching user screenshot) */}
+          <div className="hidden 2xl:flex flex-col gap-1.5 w-28 shrink-0">
+            {availableYears.map((yearKey) => {
+              const isSelected = selectedYear === yearKey;
+              const displayLabel = yearKey === 'lastYear' ? 'Last year' : yearKey;
+
+              return (
+                <button
+                  key={yearKey}
+                  type="button"
+                  onClick={() => setSelectedYear(yearKey)}
+                  className={`w-full text-left px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                    isSelected
+                      ? 'bg-[#1f6feb] text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-[#161b22]'
+                  }`}
+                >
+                  {displayLabel}
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

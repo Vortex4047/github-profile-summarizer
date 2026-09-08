@@ -13,10 +13,8 @@ import { FunDock } from './components/FunDock';
 import { CommandPalette, type CommandItem } from './components/CommandPalette';
 import { ProfileStats } from './components/ProfileStats';
 import { fetchGitHubDashboardData, type GitHubDashboardData } from './github';
+import { GitPullRequest, ArrowRightLeft } from 'lucide-react';
 
-type ThemeVariant = 'cyber' | 'holo' | 'quantum' | 'ember' | 'matrix' | 'aurora';
-
-const THEMES: ThemeVariant[] = ['cyber', 'holo', 'quantum', 'ember', 'matrix', 'aurora'];
 const DEFAULT_USERNAME = 'Vortex4047';
 const PROFILE_SURPRISE_POOL = [
   'torvalds',
@@ -64,10 +62,8 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [themeVariant, setThemeVariant] = useState<ThemeVariant>('cyber');
-  const [partyMode, setPartyMode] = useState(false);
-  const [focusMode, setFocusMode] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [showCompare, setShowCompare] = useState(false);
 
   const [heatmapWindow, setHeatmapWindow] = useState(180);
   const [heatmapMode, setHeatmapMode] = useState<HeatmapMode>('commits');
@@ -76,8 +72,12 @@ export default function App() {
   const [hideForks, setHideForks] = useState(false);
   const [showActiveReposOnly, setShowActiveReposOnly] = useState(false);
 
-  const [favoriteRepoIds, setFavoriteRepoIds] = useState<number[]>(() => readLocalNumberArray('gh-dashboard-favorites'));
-  const [recentUsers, setRecentUsers] = useState<string[]>(() => readLocalStringArray('gh-dashboard-recent-users'));
+  const [favoriteRepoIds, setFavoriteRepoIds] = useState<number[]>(() =>
+    readLocalNumberArray('gh-dashboard-favorites')
+  );
+  const [recentUsers, setRecentUsers] = useState<string[]>(() =>
+    readLocalStringArray('gh-dashboard-recent-users')
+  );
 
   const [compareInput, setCompareInput] = useState('torvalds');
   const [compareDashboard, setCompareDashboard] = useState<GitHubDashboardData | null>(null);
@@ -86,20 +86,24 @@ export default function App() {
 
   const favoriteSet = useMemo(() => new Set(favoriteRepoIds), [favoriteRepoIds]);
 
-  const loadProfile = useCallback(async (username: string) => {
-    setLoading(true);
-    setError(null);
+  const loadProfile = useCallback(
+    async (username: string, forceRefresh = false) => {
+      setLoading(true);
+      setError(null);
 
-    try {
-      const data = await fetchGitHubDashboardData(username);
-      setDashboard(data);
-    } catch (loadError) {
-      const message = loadError instanceof Error ? loadError.message : 'Unable to load GitHub profile.';
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      try {
+        const data = await fetchGitHubDashboardData(username, { forceRefresh });
+        setDashboard(data);
+      } catch (loadError) {
+        const message =
+          loadError instanceof Error ? loadError.message : 'Unable to load GitHub profile.';
+        setError(message);
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
 
   const loadCompareProfile = useCallback(async (username: string) => {
     const sanitized = username.trim().replace(/^@/, '');
@@ -112,21 +116,24 @@ export default function App() {
       const data = await fetchGitHubDashboardData(sanitized);
       setCompareDashboard(data);
     } catch (loadError) {
-      const message = loadError instanceof Error ? loadError.message : 'Unable to load comparison profile.';
+      const message =
+        loadError instanceof Error ? loadError.message : 'Unable to load comparison profile.';
       setCompareError(message);
     } finally {
       setCompareLoading(false);
     }
   }, []);
 
+  // On mount: load ONLY the default user (NOT the compare profile, conserving API budget)
   useEffect(() => {
     void loadProfile(DEFAULT_USERNAME);
-    void loadCompareProfile(compareInput);
-  }, [loadProfile, loadCompareProfile]);
+  }, [loadProfile]);
 
   useEffect(() => {
     if (!dashboard?.user.login) return;
-    setRecentUsers((prev) => [dashboard.user.login, ...prev.filter((item) => item !== dashboard.user.login)].slice(0, 8));
+    setRecentUsers((prev) =>
+      [dashboard.user.login, ...prev.filter((item) => item !== dashboard.user.login)].slice(0, 8)
+    );
   }, [dashboard?.user.login]);
 
   useEffect(() => {
@@ -146,7 +153,8 @@ export default function App() {
 
     const filtered = repos.filter((repo) => {
       if (hideForks && repo.fork) return false;
-      if (showActiveReposOnly && now - Date.parse(repo.updated_at) > 180 * 24 * 60 * 60 * 1000) return false;
+      if (showActiveReposOnly && now - Date.parse(repo.updated_at) > 180 * 24 * 60 * 60 * 1000)
+        return false;
       if (!query) return true;
       const haystack = `${repo.name} ${repo.description || ''} ${repo.language || ''}`.toLowerCase();
       return haystack.includes(query);
@@ -174,9 +182,12 @@ export default function App() {
     return new Set(repos.map((repo) => repo.language).filter(Boolean)).size;
   }, [dashboard?.repos]);
 
-  const handleLoadProfile = useCallback(() => {
-    void loadProfile(usernameInput);
-  }, [loadProfile, usernameInput]);
+  const handleLoadProfile = useCallback(
+    (forceRefresh?: boolean) => {
+      void loadProfile(usernameInput, forceRefresh);
+    },
+    [loadProfile, usernameInput]
+  );
 
   const handleLoadCompare = useCallback(() => {
     void loadCompareProfile(compareInput);
@@ -197,11 +208,6 @@ export default function App() {
     void loadProfile(picked);
   }, [dashboard?.user.login, usernameInput, loadProfile]);
 
-  const handleShuffleTheme = useCallback(() => {
-    const nextTheme = pickRandom(THEMES, themeVariant);
-    setThemeVariant(nextTheme);
-  }, [themeVariant]);
-
   const handleToggleFavorite = useCallback((repoId: number) => {
     setFavoriteRepoIds((prev) =>
       prev.includes(repoId) ? prev.filter((id) => id !== repoId) : [repoId, ...prev].slice(0, 30)
@@ -216,92 +222,59 @@ export default function App() {
       repos: filteredRepos,
       favoriteRepoIds,
       events: dashboard.events,
-      ui: {
-        theme: themeVariant,
-        partyMode,
-        focusMode,
-      },
       heatmap: {
         windowDays: heatmapWindow,
         mode: heatmapMode,
         filter: heatmapEventFilter,
       },
-      compareUser: compareDashboard?.user || null,
     };
 
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `${dashboard.user.login}-dashboard-snapshot.json`;
+    anchor.download = `${dashboard.user.login}-github-dossier.json`;
     anchor.click();
     URL.revokeObjectURL(url);
-  }, [
-    dashboard,
-    filteredRepos,
-    favoriteRepoIds,
-    themeVariant,
-    partyMode,
-    focusMode,
-    heatmapWindow,
-    heatmapMode,
-    heatmapEventFilter,
-    compareDashboard,
-  ]);
+  }, [dashboard, filteredRepos, favoriteRepoIds, heatmapWindow, heatmapMode, heatmapEventFilter]);
 
   const handleCopySummary = useCallback(async () => {
     if (!dashboard) return;
     const summary = [
       `Developer: ${dashboard.user.name || dashboard.user.login} (@${dashboard.user.login})`,
-      `Repos shown: ${filteredRepos.length}`,
-      `Favorites pinned: ${favoriteRepoIds.length}`,
-      `Total stars: ${filteredRepos.reduce((sum, repo) => sum + repo.stargazers_count, 0)}`,
-      `Events loaded: ${dashboard.events.length}`,
-      `Heatmap: ${heatmapWindow}d, mode=${heatmapMode}, filter=${heatmapEventFilter}`,
-      `Theme: ${themeVariant}, party=${partyMode}, focus=${focusMode}`,
-      compareDashboard ? `Compared with: @${compareDashboard.user.login}` : 'Compared with: none',
+      `Public Repos: ${dashboard.user.public_repos}`,
+      `Total Stars: ${filteredRepos.reduce((sum, repo) => sum + repo.stargazers_count, 0)}`,
+      `Followers: ${dashboard.user.followers}`,
+      `Primary Languages: ${languageCount}`,
+      `Profile: ${dashboard.user.html_url}`,
     ].join('\n');
 
     try {
       await navigator.clipboard.writeText(summary);
     } catch {
-      // best-effort clipboard write
+      // best-effort
     }
-  }, [
-    dashboard,
-    filteredRepos,
-    favoriteRepoIds.length,
-    heatmapWindow,
-    heatmapMode,
-    heatmapEventFilter,
-    themeVariant,
-    partyMode,
-    focusMode,
-    compareDashboard,
-  ]);
+  }, [dashboard, filteredRepos, languageCount]);
 
   const commands = useMemo<CommandItem[]>(
     () => [
-      { id: 'cmd-surprise', label: 'Load Surprise Profile', hint: 'Shift + R', run: handleSurpriseProfile, keywords: ['random', 'profile'] },
-      { id: 'cmd-theme-shuffle', label: 'Shuffle Theme', run: handleShuffleTheme, keywords: ['theme', 'style'] },
       {
-        id: 'cmd-toggle-party',
-        label: partyMode ? 'Disable Party Mode' : 'Enable Party Mode',
-        hint: 'Shift + P',
-        run: () => setPartyMode((prev) => !prev),
+        id: 'cmd-surprise',
+        label: 'Explore Random Developer',
+        hint: 'Shift + R',
+        run: handleSurpriseProfile,
+        keywords: ['random', 'profile', 'explore'],
       },
       {
-        id: 'cmd-toggle-focus',
-        label: focusMode ? 'Disable Focus Mode' : 'Enable Focus Mode',
-        hint: 'Shift + F',
-        run: () => setFocusMode((prev) => !prev),
+        id: 'cmd-toggle-compare',
+        label: showCompare ? 'Hide Developer Comparison' : 'Show Developer Comparison',
+        run: () => {
+          setShowCompare((p) => !p);
+          if (!showCompare && !compareDashboard) {
+            void loadCompareProfile(compareInput);
+          }
+        },
       },
-      { id: 'cmd-theme-cyber', label: 'Switch Theme: Cyber', run: () => setThemeVariant('cyber') },
-      { id: 'cmd-theme-holo', label: 'Switch Theme: Hologram', run: () => setThemeVariant('holo') },
-      { id: 'cmd-theme-quantum', label: 'Switch Theme: Quantum', run: () => setThemeVariant('quantum') },
-      { id: 'cmd-theme-ember', label: 'Switch Theme: Ember', run: () => setThemeVariant('ember') },
-      { id: 'cmd-theme-matrix', label: 'Switch Theme: Matrix', run: () => setThemeVariant('matrix') },
-      { id: 'cmd-theme-aurora', label: 'Switch Theme: Aurora', run: () => setThemeVariant('aurora') },
       {
         id: 'cmd-reset-search',
         label: 'Clear Filters & Search',
@@ -313,8 +286,8 @@ export default function App() {
           setRepoSort('stars');
         },
       },
-      { id: 'cmd-copy-summary', label: 'Copy Dashboard Summary', run: () => void handleCopySummary() },
-      { id: 'cmd-export', label: 'Export Snapshot JSON', run: handleExportSnapshot },
+      { id: 'cmd-copy-summary', label: 'Copy Profile Summary', run: () => void handleCopySummary() },
+      { id: 'cmd-export', label: 'Export JSON Dossier', run: handleExportSnapshot },
       ...PROFILE_SURPRISE_POOL.slice(0, 5).map((username) => ({
         id: `cmd-load-${username}`,
         label: `Load @${username}`,
@@ -327,9 +300,10 @@ export default function App() {
     ],
     [
       handleSurpriseProfile,
-      handleShuffleTheme,
-      partyMode,
-      focusMode,
+      showCompare,
+      compareDashboard,
+      loadCompareProfile,
+      compareInput,
       handleCopySummary,
       handleExportSnapshot,
       loadProfile,
@@ -354,13 +328,7 @@ export default function App() {
 
       if (isTypingTarget(event.target)) return;
 
-      if (event.shiftKey && key === 'p') {
-        event.preventDefault();
-        setPartyMode((prev) => !prev);
-      } else if (event.shiftKey && key === 'f') {
-        event.preventDefault();
-        setFocusMode((prev) => !prev);
-      } else if (event.shiftKey && key === 'r') {
+      if (event.shiftKey && key === 'r') {
         event.preventDefault();
         handleSurpriseProfile();
       }
@@ -371,34 +339,41 @@ export default function App() {
   }, [handleSurpriseProfile]);
 
   return (
-    <div className={`dashboard-shell theme-${themeVariant} ${partyMode ? 'mode-party' : ''} ${focusMode ? 'mode-focus' : ''}`}>
-      <div className="dashboard-shell__glow dashboard-shell__glow--left"></div>
-      <div className="dashboard-shell__glow dashboard-shell__glow--right"></div>
-      <div className="dashboard-shell__mesh"></div>
-      <div className="dashboard-shell__scan"></div>
+    <div className="dashboard-shell">
+      <div className="max-w-[1360px] mx-auto px-4 py-6 sm:px-6 sm:py-8 space-y-6">
+        {/* Clean Editorial Title Bar */}
+        <div className="flex items-center justify-between gap-4 pb-2 border-b border-white/[0.06]">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+              <GitPullRequest className="w-4 h-4" />
+            </div>
+            <div>
+              <h1 className="text-base font-semibold text-white tracking-tight">
+                GitHub Developer Dossier
+              </h1>
+              <p className="text-xs text-slate-400">Activity, language focus, and code intelligence</p>
+            </div>
+          </div>
 
-      <div className="relative max-w-[1400px] mx-auto px-4 py-6 sm:px-6 sm:py-10">
-        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h1 className="hero-title">Developer Persona</h1>
-          <div className="theme-switcher" role="radiogroup" aria-label="Theme Variant">
-            {(THEMES.map((theme) => ({ id: theme, label: theme === 'holo' ? 'Hologram' : theme === 'quantum' ? 'Quantum' : theme === 'ember' ? 'Ember' : theme === 'matrix' ? 'Matrix' : theme === 'aurora' ? 'Aurora' : 'Cyber' })) as Array<{
-              id: ThemeVariant;
-              label: string;
-            }>).map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                role="radio"
-                aria-checked={themeVariant === item.id}
-                className={`theme-switcher__btn ${themeVariant === item.id ? 'theme-switcher__btn--active' : ''}`}
-                onClick={() => setThemeVariant(item.id)}
-              >
-                {item.label}
-              </button>
-            ))}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const next = !showCompare;
+                setShowCompare(next);
+                if (next && !compareDashboard) {
+                  void loadCompareProfile(compareInput);
+                }
+              }}
+              className={`control-pill ${showCompare ? 'control-pill--active' : ''}`}
+            >
+              <ArrowRightLeft className="w-3.5 h-3.5" />
+              <span>Compare Developer</span>
+            </button>
           </div>
         </div>
 
+        {/* Profile Identity & Search Bar */}
         <ScrollReveal>
           <Header
             user={dashboard?.user ?? null}
@@ -407,29 +382,37 @@ export default function App() {
             searchQuery={searchQuery}
             loading={loading}
             error={error}
+            fromCache={dashboard?.fromCache}
             onUsernameInputChange={setUsernameInput}
             onSearchChange={setSearchQuery}
             onLoadProfile={handleLoadProfile}
           />
         </ScrollReveal>
 
-        <ScrollReveal delay={20} className="mt-6">
+        {/* Quick Utility Actions Bar */}
+        <ScrollReveal delay={15}>
           <FunDock
             currentUsername={dashboard?.user.login || null}
-            themeVariant={themeVariant}
-            partyMode={partyMode}
-            focusMode={focusMode}
             recentUsers={recentUsers}
-            onTogglePartyMode={() => setPartyMode((prev) => !prev)}
-            onToggleFocusMode={() => setFocusMode((prev) => !prev)}
-            onShuffleTheme={handleShuffleTheme}
             onSurpriseProfile={handleSurpriseProfile}
             onOpenCommandPalette={() => setPaletteOpen(true)}
             onLoadRecentUser={handleLoadRecentUser}
+            onExportSnapshot={handleExportSnapshot}
+            onCopySummary={handleCopySummary}
           />
         </ScrollReveal>
 
-        <ScrollReveal delay={30} className="mt-6">
+        {/* 4-Metric Key Indicators */}
+        <ScrollReveal delay={30}>
+          <ImpactMetrics
+            repos={dashboard?.repos ?? []}
+            events={dashboard?.events ?? []}
+            loading={loading}
+          />
+        </ScrollReveal>
+
+        {/* Fast Repository & Heatmap Filters */}
+        <ScrollReveal delay={45}>
           <DashboardControls
             events={dashboard?.events ?? []}
             repos={dashboard?.repos ?? []}
@@ -450,13 +433,8 @@ export default function App() {
           />
         </ScrollReveal>
 
-        {!focusMode && (
-          <ScrollReveal delay={42} className="mt-6">
-            <ActivityLab events={dashboard?.events ?? []} repos={filteredRepos} loading={loading} />
-          </ScrollReveal>
-        )}
-
-        <ScrollReveal delay={48} className="mt-6">
+        {/* 8-Tile Deep Profile Stats */}
+        <ScrollReveal delay={55}>
           <ProfileStats
             user={dashboard?.user ?? null}
             repos={dashboard?.repos ?? []}
@@ -465,27 +443,36 @@ export default function App() {
           />
         </ScrollReveal>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+        {/* Main Bento Grid: 2-Column Interlocking Architecture */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="space-y-6">
-            <ScrollReveal delay={55}>
-              <ImpactMetrics repos={dashboard?.repos ?? []} events={dashboard?.events ?? []} loading={loading} />
-            </ScrollReveal>
-            <ScrollReveal delay={90}>
+            <ScrollReveal delay={65}>
               <TechStack repos={dashboard?.repos ?? []} loading={loading} />
+            </ScrollReveal>
+
+            <ScrollReveal delay={85}>
+              <ActivityLab
+                events={dashboard?.events ?? []}
+                repos={filteredRepos}
+                loading={loading}
+              />
             </ScrollReveal>
           </div>
 
           <div className="space-y-6">
-            <ScrollReveal delay={70}>
+            <ScrollReveal delay={75}>
               <ContributionHeatmap
                 events={dashboard?.events ?? []}
+                calendar={dashboard?.calendar}
                 loading={loading}
                 days={heatmapWindow}
                 mode={heatmapMode}
                 eventFilter={heatmapEventFilter}
+                username={dashboard?.user.login || usernameInput}
               />
             </ScrollReveal>
-            <ScrollReveal delay={120}>
+
+            <ScrollReveal delay={95}>
               <TopRepositories
                 repos={filteredRepos}
                 loading={loading}
@@ -497,14 +484,18 @@ export default function App() {
           </div>
         </div>
 
-        {!focusMode && (
-          <ScrollReveal delay={150} className="mt-6">
-            <ActivityStream title="Recent Activity Stream" events={dashboard?.events ?? []} loading={loading} />
-          </ScrollReveal>
-        )}
+        {/* Activity Stream */}
+        <ScrollReveal delay={110}>
+          <ActivityStream
+            title="Recent Activity Timeline"
+            events={dashboard?.events ?? []}
+            loading={loading}
+          />
+        </ScrollReveal>
 
-        {!focusMode && (
-          <ScrollReveal delay={170} className="mt-6">
+        {/* On-Demand Comparison View (Only loads when opened) */}
+        {showCompare && (
+          <ScrollReveal delay={120}>
             <DeveloperCompare
               primary={dashboard}
               compare={compareDashboard}
@@ -518,7 +509,11 @@ export default function App() {
         )}
       </div>
 
-      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        commands={commands}
+      />
     </div>
   );
 }

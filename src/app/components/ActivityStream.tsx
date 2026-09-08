@@ -68,20 +68,20 @@ export function ActivityStream({ title, events, loading }: ActivityStreamProps) 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-xl">{title}</h3>
-        <button className="text-gray-400 hover:text-white transition-colors">
-          <MoreHorizontal className="w-5 h-5" />
-        </button>
+        <h3 className="text-lg font-semibold text-white tracking-tight">{title}</h3>
+        <span className="text-xs text-slate-400 font-mono">{events.length} events</span>
       </div>
 
-      <div className="neo-panel p-6">
-        {loading && visibleEvents.length === 0 && <p className="text-sm text-gray-400">Loading activity...</p>}
-
-        {!loading && visibleEvents.length === 0 && (
-          <p className="text-sm text-gray-400">No recent public activity was returned by GitHub.</p>
+      <div className="neo-panel p-5">
+        {loading && visibleEvents.length === 0 && (
+          <p className="text-xs text-slate-500 py-6 text-center">Loading recent activity...</p>
         )}
 
-        <div className="space-y-4">
+        {!loading && visibleEvents.length === 0 && (
+          <p className="text-xs text-slate-500 py-6 text-center">No recent public activity reported.</p>
+        )}
+
+        <div className="space-y-3">
           {visibleEvents.map((event, index) => {
             const meta = getEventMetadata(event);
             const Icon = meta.icon;
@@ -89,33 +89,35 @@ export function ActivityStream({ title, events, loading }: ActivityStreamProps) 
             return (
               <div
                 key={event.id}
-                className="flex gap-4 hover:bg-white/5 p-3 rounded-lg transition-all cursor-pointer group"
+                className="flex gap-3.5 hover:bg-white/[0.03] p-2.5 rounded-lg transition-colors group"
               >
-                <div className="relative">
+                <div className="relative shrink-0">
                   <div
-                    className="w-8 h-8 rounded-lg flex items-center justify-center"
-                    style={{ backgroundColor: `${meta.color}20`, color: meta.color }}
+                    className="w-7 h-7 rounded-md flex items-center justify-center"
+                    style={{ backgroundColor: `${meta.color}15`, color: meta.color }}
                   >
-                    <Icon className="w-4 h-4" />
+                    <Icon className="w-3.5 h-3.5" />
                   </div>
                   {index < visibleEvents.length - 1 && (
-                    <div className="absolute top-8 left-1/2 -translate-x-1/2 w-0.5 h-8 bg-gradient-to-b from-cyan-500/50 to-transparent"></div>
+                    <div className="absolute top-7 left-1/2 -translate-x-1/2 w-[1px] h-6 bg-white/[0.08]"></div>
                   )}
                 </div>
 
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm group-hover:text-cyan-300 transition-colors">{meta.title}</div>
-                  <div className="flex items-center gap-2 mt-1">
+                  <div className="text-xs font-medium text-slate-200 group-hover:text-white transition-colors">
+                    {meta.title}
+                  </div>
+                  <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400 font-mono">
                     <a
                       href={`https://github.com/${event.repoName}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-xs text-cyan-400 hover:underline truncate max-w-[220px]"
+                      className="hover:text-emerald-400 transition-colors truncate max-w-[260px]"
                     >
                       {event.repoName}
                     </a>
-                    <span className="text-xs text-gray-500">•</span>
-                    <span className="text-xs text-gray-500">{getRelativeTime(event.createdAt)}</span>
+                    <span>•</span>
+                    <span className="text-slate-500">{getRelativeTime(event.createdAt)}</span>
                   </div>
                 </div>
               </div>

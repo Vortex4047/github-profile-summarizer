@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { TrendingUp, GitMerge, Star, GitCommit } from 'lucide-react';
+import { GitCommit, GitPullRequest, Star, FolderGit2 } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
 import type { GitHubEvent, GitHubRepo } from '../github';
 
@@ -41,6 +41,7 @@ export function ImpactMetrics({ repos, events, loading }: ImpactMetricsProps) {
   const totalCommits = events.reduce((sum, event) => sum + event.commitCount, 0);
   const prEvents = events.filter((event) => event.type === 'PullRequestEvent').length;
   const totalStars = repos.reduce((sum, repo) => sum + repo.stargazers_count, 0);
+  const totalForks = repos.reduce((sum, repo) => sum + repo.forks_count, 0);
 
   const commitTrend = getWeekSeries(events, (event) => event.commitCount);
   const prTrend = getWeekSeries(events, (event) => (event.type === 'PullRequestEvent' ? 1 : 0));
@@ -50,38 +51,40 @@ export function ImpactMetrics({ repos, events, loading }: ImpactMetricsProps) {
     .reverse()
     .map((repo) => ({ value: repo.stargazers_count }));
 
-  const commitTrendUp = commitTrend.at(-1)?.value ? commitTrend.at(-1)!.value >= (commitTrend.at(-2)?.value || 0) : false;
-
   return (
-    <div className="space-y-4">
-      <h3 className="text-xl">Impact Metrics</h3>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <MetricCard
-          icon={<GitCommit className="w-5 h-5" />}
-          label="TOTAL COMMITS"
-          value={loading ? '-' : totalCommits.toLocaleString()}
-          trend={loading ? undefined : `${commitTrend.at(-1)?.value || 0} in last week`}
-          trendUp={commitTrendUp}
-          data={commitTrend}
-          color="#22d3ee"
-        />
-        <MetricCard
-          icon={<GitMerge className="w-5 h-5" />}
-          label="PR EVENTS"
-          value={loading ? '-' : prEvents.toLocaleString()}
-          trend={loading ? undefined : `${events.filter((event) => event.prMerged).length} merged`}
-          data={prTrend}
-          color="#a78bfa"
-        />
-        <MetricCard
-          icon={<Star className="w-5 h-5" />}
-          label="TOTAL STARS"
-          value={loading ? '-' : totalStars.toLocaleString()}
-          trend={loading ? undefined : `${repos.length} public repos`}
-          data={starsTrend.length ? starsTrend : [{ value: 0 }]}
-          color="#60a5fa"
-        />
-      </div>
+    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <MetricCard
+        icon={<GitCommit className="w-4 h-4 text-emerald-400" />}
+        label="Recent Commits"
+        value={loading ? '—' : totalCommits.toLocaleString()}
+        subtext={`${commitTrend.at(-1)?.value || 0} in the last 7 days`}
+        data={commitTrend}
+        color="#10b981"
+      />
+      <MetricCard
+        icon={<Star className="w-4 h-4 text-amber-400" />}
+        label="Total Stars Earned"
+        value={loading ? '—' : totalStars.toLocaleString()}
+        subtext={`Across ${repos.length} public repositories`}
+        data={starsTrend.length ? starsTrend : [{ value: 0 }]}
+        color="#f59e0b"
+      />
+      <MetricCard
+        icon={<GitPullRequest className="w-4 h-4 text-sky-400" />}
+        label="Pull Request Activity"
+        value={loading ? '—' : prEvents.toLocaleString()}
+        subtext={`${events.filter((e) => e.prMerged).length} merged successfully`}
+        data={prTrend}
+        color="#38bdf8"
+      />
+      <MetricCard
+        icon={<FolderGit2 className="w-4 h-4 text-purple-400" />}
+        label="Repositories & Forks"
+        value={loading ? '—' : repos.length.toLocaleString()}
+        subtext={`${totalForks} total community forks`}
+        data={commitTrend}
+        color="#a855f7"
+      />
     </div>
   );
 }
@@ -90,38 +93,35 @@ interface MetricCardProps {
   icon: ReactNode;
   label: string;
   value: string;
-  trend?: string;
-  trendUp?: boolean;
+  subtext?: string;
   data: { value: number }[];
   color: string;
 }
 
-function MetricCard({ icon, label, value, trend, trendUp, data, color }: MetricCardProps) {
+function MetricCard({ icon, label, value, subtext, data, color }: MetricCardProps) {
   return (
-    <div className="neo-panel p-6 hover:border-cyan-400/40 transition-all cursor-pointer group">
-      <div className="flex items-center gap-2 text-gray-400 text-xs mb-2">
-        {icon}
-        <span>{label}</span>
-      </div>
-      <div className="flex items-end justify-between">
-        <div>
-          <div className="text-4xl mb-1 flex items-center gap-2">
-            {value}
-            {trendUp && <TrendingUp className="w-6 h-6 text-green-400" />}
-          </div>
-          {trend && <div className="text-xs text-green-400">{trend}</div>}
+    <div className="neo-panel p-5 flex flex-col justify-between">
+      <div>
+        <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
+          <span>{label}</span>
+          <div className="p-1.5 rounded bg-white/[0.04] border border-white/[0.06]">{icon}</div>
         </div>
+        <div className="text-2xl sm:text-3xl font-bold font-mono text-white mb-1 tracking-tight">
+          {value}
+        </div>
+        {subtext && <div className="text-xs text-slate-400 line-clamp-1">{subtext}</div>}
       </div>
-      <div className="mt-4 h-12">
+
+      <div className="mt-4 h-10 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data}>
             <Line
               type="monotone"
               dataKey="value"
               stroke={color}
-              strokeWidth={2}
+              strokeWidth={1.75}
               dot={false}
-              className="transition-all group-hover:drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]"
+              isAnimationActive={false}
             />
           </LineChart>
         </ResponsiveContainer>
