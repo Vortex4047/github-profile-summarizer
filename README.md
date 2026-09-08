@@ -11,11 +11,6 @@
 
 **A rich, interactive dashboard that turns any GitHub profile into a beautiful developer portfolio card — with contribution heatmaps, activity streams, repo analytics, and side-by-side comparisons.**
 
-<br/>
-
-[**🔴 Live Demo →**](https://github-summarizer-topaz.vercel.app)&nbsp;&nbsp;&nbsp;[**📁 Source Code →**](https://github.com/Vortex4047/github-summarizer)
-
-<br/>
 
 </div>
 
